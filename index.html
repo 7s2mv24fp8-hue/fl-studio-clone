@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FL Studio — Web Clone</title>
+  <meta name="description" content="A browser-based FL Studio clone with step sequencer, piano roll, mixer, and playlist. Powered by the Web Audio API.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Title Bar ─────────────────────────────────────── -->
+  <div id="titlebar">
+    <div class="win-controls">
+      <div class="win-btn close"  title="Close"></div>
+      <div class="win-btn min"    title="Minimize"></div>
+      <div class="win-btn max"    title="Maximize"></div>
+    </div>
+    <div class="app-title">
+      <span>FL</span>&nbsp;Studio — Web Clone &nbsp;|&nbsp; Pattern 1
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+      <div style="font-size:10px;color:var(--text-muted);">Space=Play &nbsp; F6=Stop &nbsp; Ctrl+M=Mixer</div>
+    </div>
+  </div>
+
+  <!-- ── Transport / Toolbar ───────────────────────────── -->
+  <div id="toolbar">
+
+    <!-- Transport -->
+    <div class="transport-group">
+      <button id="btn-play"   class="transport-btn play"   title="Play (Space / F5)" data-tooltip="Play">
+        <svg viewBox="0 0 16 16" width="14" fill="currentColor"><polygon points="3,2 13,8 3,14"/></svg>
+      </button>
+      <button id="btn-stop"   class="transport-btn stop"   title="Stop (F6)" data-tooltip="Stop">
+        <svg viewBox="0 0 16 16" width="12" fill="currentColor"><rect x="2" y="2" width="12" height="12" rx="1"/></svg>
+      </button>
+      <button id="btn-record" class="transport-btn record" title="Record" data-tooltip="Record">
+        <svg viewBox="0 0 16 16" width="12" fill="currentColor"><circle cx="8" cy="8" r="5"/></svg>
+      </button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- Pattern / Song mode -->
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-pattern">PAT</button>
+      <button class="mode-btn"        id="mode-song">SONG</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- BPM -->
+    <div class="bpm-group">
+      <span class="bpm-label">BPM</span>
+      <input id="bpm-display" class="bpm-display" type="number" min="20" max="300" value="140" title="Drag to change BPM">
+      <div class="bpm-arrows">
+        <button id="bpm-up"   class="bpm-arrow" title="+1 BPM">▲</button>
+        <button id="bpm-down" class="bpm-arrow" title="−1 BPM">▼</button>
+      </div>
+    </div>
+
+    <!-- Time sig -->
+    <div class="timesig-group">
+      <span>4</span>
+      <span style="font-size:10px;color:var(--text-muted)">/</span>
+      <span>4</span>
+    </div>
+
+    <!-- Position -->
+    <div id="position-display" class="position-display">1:1:1</div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- View toggles -->
+    <div class="view-btns">
+      <button class="view-btn" onclick="app._switchTab('piano-roll')" title="Piano Roll (Ctrl+P)">
+        <svg viewBox="0 0 16 16" width="13" fill="currentColor">
+          <rect x="1" y="3" width="14" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1"/>
+          <rect x="2" y="4" width="1" height="4" fill="currentColor"/>
+          <rect x="4" y="4" width="1" height="6" fill="currentColor"/>
+          <rect x="6" y="4" width="1" height="4" fill="currentColor"/>
+          <rect x="8" y="4" width="1" height="8" fill="currentColor"/>
+          <rect x="10" y="4" width="1" height="4" fill="currentColor"/>
+          <rect x="12" y="4" width="1" height="6" fill="currentColor"/>
+        </svg>
+        Piano Roll
+      </button>
+      <button class="view-btn" onclick="app._switchTab('mixer')" title="Mixer (Ctrl+M / F9)">
+        <svg viewBox="0 0 16 16" width="13" fill="currentColor">
+          <rect x="1" y="2" width="2" height="12" rx="1"/>
+          <rect x="4" y="4" width="2" height="10" rx="1"/>
+          <rect x="7" y="1" width="2" height="13" rx="1"/>
+          <rect x="10" y="3" width="2" height="11" rx="1"/>
+          <rect x="13" y="5" width="2" height="9" rx="1"/>
+        </svg>
+        Mixer
+      </button>
+      <button class="view-btn" onclick="app._switchTab('playlist')" title="Playlist">
+        <svg viewBox="0 0 16 16" width="13" fill="currentColor">
+          <rect x="1" y="2"  width="8"  height="3" rx="1"/>
+          <rect x="1" y="7"  width="11" height="3" rx="1"/>
+          <rect x="1" y="12" width="5"  height="3" rx="1"/>
+        </svg>
+        Playlist
+      </button>
+    </div>
+
+    <!-- Master knobs -->
+    <div class="master-group">
+      <div class="knob-wrap" data-tooltip="Master Volume">
+        <span class="master-knob-label">VOL</span>
+        <canvas id="master-vol-knob" width="36" height="36" title="Master Volume (drag)"></canvas>
+        <span id="master-vol-val" class="knob-value">85%</span>
+      </div>
+      <div class="knob-wrap" data-tooltip="Master Pitch">
+        <span class="master-knob-label">PITCH</span>
+        <canvas id="master-pitch-knob" width="36" height="36" title="Master Pitch (drag)"></canvas>
+        <span id="master-pitch-val" class="knob-value">0 st</span>
+      </div>
+    </div>
+
+    <!-- AI Beat Suggester toggle -->
+    <div style="margin-left:auto;padding-right:10px;">
+      <button id="btn-ai-toggle" title="AI Beat Suggester">
+        <span class="ai-btn-dot"></span>
+        ✨ AI Beats
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Main Content ──────────────────────────────────── -->
+  <div id="main-content">
+
+    <!-- Left: Channel Rack -->
+    <div id="channel-rack" class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Channel <span class="panel-accent">Rack</span></span>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <select class="rack-pattern-select" id="rack-pattern-select">
+            <option>Pattern 1</option>
+            <option>Pattern 2</option>
+            <option>Pattern 3</option>
+            <option>Pattern 4</option>
+          </select>
+        </div>
+      </div>
+      <div class="rack-controls">
+        <span style="font-size:10px;color:var(--text-muted);">Steps:</span>
+        <span class="rack-step-count" style="color:var(--text-secondary);font-weight:700;">16</span>
+        <div style="margin-left:auto;display:flex;gap:4px;">
+          <button class="ch-btn" title="Randomize All" onclick="sequencerRandomizeAll()" style="width:auto;padding:0 6px;font-size:9px;">🎲 Rand</button>
+          <button class="ch-btn" title="Clear All" onclick="sequencerClearAll()" style="width:auto;padding:0 6px;font-size:9px;">🗑 Clear</button>
+        </div>
+      </div>
+
+      <!-- Step headers -->
+      <div style="display:flex;align-items:center;height:20px;background:#111;border-bottom:1px solid var(--border);padding:0 4px;">
+        <div style="width:84px;flex-shrink:0;"></div>
+        <div style="width:44px;flex-shrink:0;"></div>
+        <div style="flex:1;display:flex;">
+          <script>
+            for(let i=1;i<=16;i++) {
+              document.write(`<div style="flex:1;text-align:center;font-size:8px;font-family:JetBrains Mono,monospace;color:${i%4===1?'#ff6a00':'#444'}">${i}</div>`);
+            }
+          </script>
+        </div>
+      </div>
+
+      <!-- Channel rows -->
+      <div id="channels-list"></div>
+
+      <!-- Add channel button -->
+      <div id="add-channel-btn">
+        <svg viewBox="0 0 16 16" width="12" fill="currentColor"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Add Channel
+      </div>
+    </div>
+
+    <!-- Resize handle -->
+    <div class="resize-handle-h" id="rack-resize" style="background:#111;border-right:1px solid #000;"></div>
+
+    <!-- Right panel: Piano Roll / Mixer / Playlist tabs -->
+    <div id="right-panel">
+      <div class="right-tabs">
+        <button class="right-tab active" data-tab="piano-roll">
+          <span class="tab-icon">🎹</span> Piano Roll
+        </button>
+        <button class="right-tab" data-tab="mixer">
+          <span class="tab-icon">🎚</span> Mixer
+        </button>
+        <button class="right-tab" data-tab="playlist">
+          <span class="tab-icon">🎼</span> Playlist
+        </button>
+        <button class="right-tab record-tab" data-tab="record">
+          <span class="tab-icon">🎤</span> Record
+          <span class="rec-dot"></span>
+        </button>
+      </div>
+
+      <!-- Piano Roll tab -->
+      <div id="tab-piano-roll" class="tab-content visible">
+        <div id="piano-roll-view">
+          <!-- Toolbar -->
+          <div class="piano-roll-toolbar">
+            <button id="pr-draw-btn"  class="pr-tool-btn active" title="Draw notes">
+              ✏️ Draw
+            </button>
+            <button id="pr-erase-btn" class="pr-tool-btn" title="Erase notes">
+              🩹 Erase
+            </button>
+            <div class="pr-separator"></div>
+            <label style="font-size:10px;color:var(--text-muted);">Q:</label>
+            <select id="pr-quantize" class="pr-quantize-select" title="Quantize (note length)">
+              <option value="1">1/16</option>
+              <option value="2">1/8</option>
+              <option value="4">1/4</option>
+              <option value="8">1/2</option>
+            </select>
+            <div class="pr-separator"></div>
+            <label style="font-size:10px;color:var(--text-muted);">Channel:</label>
+            <select id="pr-channel-select" class="pr-quantize-select" title="Select channel to edit">
+              <!-- Filled dynamically -->
+            </select>
+            <div class="pr-separator"></div>
+            <button id="pr-clear-btn" class="pr-tool-btn" style="margin-left:auto;color:#ef4444;">
+              🗑 Clear
+            </button>
+          </div>
+          <!-- Grid -->
+          <div id="piano-roll-wrap">
+            <div id="piano-keys" style="width:48px;overflow-y:hidden;flex-shrink:0;">
+              <canvas id="piano-keys-canvas"></canvas>
+            </div>
+            <div id="piano-roll-canvas-wrap" style="flex:1;overflow:auto;position:relative;">
+              <canvas id="piano-roll-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mixer tab -->
+      <div id="tab-mixer" class="tab-content">
+        <div id="mixer-view" style="flex:1;display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;height:100%;">
+          <div id="mixer-channels"></div>
+        </div>
+      </div>
+
+      <!-- Playlist tab -->
+      <div id="tab-playlist" class="tab-content">
+        <div id="playlist-view">
+          <div id="playlist-toolbar">
+            <button id="pl-draw-btn"  class="pl-tool-btn active">✏️ Draw</button>
+            <button id="pl-erase-btn" class="pl-tool-btn">🩹 Erase</button>
+            <div style="width:1px;height:18px;background:var(--border);margin:0 4px;"></div>
+            <button id="pl-loop-btn"  class="pl-tool-btn">🔁 Loop</button>
+            <div style="margin-left:auto;font-size:10px;color:var(--text-muted);">
+              Right-click to remove blocks
+            </div>
+          </div>
+          <div id="playlist-wrap">
+            <div id="playlist-track-labels"></div>
+            <div id="playlist-grid-wrap">
+              <canvas id="playlist-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Record tab -->
+      <div id="tab-record" class="tab-content">
+        <div id="record-view">
+
+          <!-- Top control bar -->
+          <div id="record-topbar">
+            <!-- Arm mic -->
+            <button id="btn-arm" title="Arm microphone for recording">🎙</button>
+
+            <!-- Record / Stop -->
+            <button id="btn-rec" disabled title="Record (arm mic first)">REC</button>
+            <button id="btn-rec-stop" title="Stop recording">⏹ Stop</button>
+
+            <!-- Monitor -->
+            <button id="btn-monitor" title="Monitor mic input through auto-tune">👂 Monitor</button>
+
+            <!-- Status badge -->
+            <div id="rec-status" class="rec-status-badge idle">● Idle</div>
+
+            <!-- Mic level -->
+            <div class="mic-level-wrap">
+              <div class="mic-level-label">Input</div>
+              <div class="mic-level-bar-bg">
+                <div class="mic-level-bar-fill" id="mic-level-fill"></div>
+              </div>
+            </div>
+
+            <!-- Timer -->
+            <div id="rec-time-display">0:00</div>
+          </div>
+
+          <!-- Body: auto-tune panel + clips -->
+          <div id="record-body">
+
+            <!-- Left: Auto-tune controls -->
+            <div id="autotune-panel">
+
+              <!-- Live pitch display -->
+              <div class="at-section">
+                <div class="at-section-title">Live Pitch</div>
+                <div id="pitch-display-big">
+                  <div class="pitch-note-name" id="pitch-note-detected">—</div>
+                  <div class="pitch-freq-label" id="pitch-freq-label">Sing or play to detect</div>
+                  <div class="pitch-arrow-row">
+                    <span class="pitch-detected" id="pitch-raw-note">—</span>
+                    <span class="pitch-arrow">→</span>
+                    <span class="pitch-corrected" id="pitch-corrected-note">—</span>
+                  </div>
+                  <div class="cents-meter">
+                    <div class="cents-center"></div>
+                    <div class="cents-needle" id="cents-needle"></div>
+                  </div>
+                </div>
+                <!-- Pitch graph -->
+                <canvas id="pitch-graph-canvas" width="240" height="120"></canvas>
+              </div>
+
+              <!-- Auto-Tune settings -->
+              <div class="at-section">
+                <div class="at-section-title">Auto-Tune Settings</div>
+
+                <div class="at-control-row">
+                  <span class="at-label">Key</span>
+                  <select class="at-select" id="at-key">
+                    <option>C</option><option>C#</option><option>D</option>
+                    <option>D#</option><option>E</option><option>F</option>
+                    <option>F#</option><option>G</option><option>G#</option>
+                    <option>A</option><option>A#</option><option>B</option>
+                  </select>
+                </div>
+
+                <div class="at-control-row">
+                  <span class="at-label">Scale</span>
+                  <select class="at-select" id="at-scale">
+                    <option>Major</option>
+                    <option>Minor</option>
+                    <option>Harmonic Min</option>
+                    <option>Pentatonic</option>
+                    <option>Blues</option>
+                    <option>Dorian</option>
+                    <option>Mixolydian</option>
+                    <option>Chromatic</option>
+                  </select>
+                </div>
+
+                <div class="at-control-row">
+                  <span class="at-label">Strength</span>
+                  <input type="range" class="at-slider" id="at-strength" min="0" max="100" value="95">
+                  <span class="at-slider-val" id="at-strength-val">95%</span>
+                </div>
+
+                <div class="at-control-row">
+                  <span class="at-label">Speed</span>
+                  <input type="range" class="at-slider" id="at-speed" min="1" max="100" value="15">
+                  <span class="at-slider-val" id="at-speed-val">Fast</span>
+                </div>
+
+                <div class="at-control-row">
+                  <span class="at-label">Formant</span>
+                  <div class="at-toggle" id="at-formant-toggle">
+                    <div class="at-toggle-track on" id="at-formant-track">
+                      <div class="at-toggle-thumb"></div>
+                    </div>
+                    <span class="at-toggle-label" id="at-formant-label">Preserve</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Mic gain -->
+              <div class="at-section">
+                <div class="at-section-title">Input Gain</div>
+                <div class="at-control-row">
+                  <span class="at-label">Mic Gain</span>
+                  <input type="range" class="at-slider" id="at-mic-gain" min="0" max="300" value="100">
+                  <span class="at-slider-val" id="at-mic-gain-val">100%</span>
+                </div>
+              </div>
+
+            </div><!-- #autotune-panel -->
+
+            <!-- Right: Clips list -->
+            <div id="clips-panel">
+              <div id="clips-header">
+                <span class="clips-title">🎵 Recorded Clips</span>
+                <span id="clips-count" style="font-size:10px;color:var(--text-muted);margin-left:auto;">0 clips</span>
+              </div>
+              <div id="clips-list">
+                <div id="no-clips-msg">
+                  <span class="no-clips-icon">🎙</span>
+                  <div>No recordings yet</div>
+                  <div style="font-size:10px;">Arm the mic, then hit REC to start capturing</div>
+                </div>
+              </div>
+
+              <!-- Export bar -->
+              <div id="export-bar">
+                <span class="export-label">Bounce:</span>
+                <div class="export-bars-wrap">
+                  <input type="number" class="export-bars-input" id="export-bars" value="8" min="1" max="64">
+                  <span>bars</span>
+                </div>
+                <select class="export-select" id="export-format">
+                  <option value="stereo">Stereo WAV</option>
+                  <option value="mono">Mono WAV</option>
+                </select>
+                <button id="btn-export">
+                  <span class="export-icon">⬇ Bounce to WAV</span>
+                  <span class="export-spinner">⟳</span>
+                </button>
+              </div>
+            </div><!-- #clips-panel -->
+
+          </div><!-- #record-body -->
+        </div><!-- #record-view -->
+      </div><!-- #tab-record -->
+
+    </div>
+  </div>
+
+  <!-- ── Status Bar ─────────────────────────────────────── -->
+  <div id="statusbar">
+    <div class="status-item">
+      🎵 <span id="status-mode">Pattern Mode</span>
+    </div>
+    <div class="status-item">
+      CPU: <span id="status-cpu">0%</span>
+    </div>
+    <div class="status-item">
+      Step: <span id="status-step">—</span>
+    </div>
+    <div class="status-item" style="margin-left:auto;">
+      <span style="color:var(--accent)">FL Studio Web Clone</span> &nbsp;·&nbsp; Web Audio API + Canvas
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+</div><!-- #app -->
+
+<!-- Inline styles for correct layout -->
+<style>
+  /* Tab content layout overrides */
+  .tab-content.visible {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    height: 100%;
+  }
+  #tab-mixer.visible {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  #tab-mixer.visible #mixer-view {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    height: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  #mixer-channels {
+    display: flex;
+    flex-direction: row;
+    height: 100%;
+    padding: 10px;
+    gap: 2px;
+    min-width: max-content;
+    align-items: flex-start;
+  }
+
+  /* Piano roll layout */
+  #piano-roll-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    height: 100%;
+  }
+  #piano-roll-wrap {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  #piano-roll-canvas-wrap {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+  }
+  #piano-keys {
+    width: 48px;
+    flex-shrink: 0;
+    background: #1a1a1a;
+    border-right: 1px solid var(--border);
+    overflow-y: hidden;
+  }
+
+  /* Playlist layout */
+  #playlist-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+  }
+  #playlist-wrap {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  #playlist-track-labels {
+    width: 120px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  #playlist-grid-wrap {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+  }
+  /* Step number header */
+  .step-header {
+    display: flex;
+    height: 18px;
+    align-items: center;
+    background: #111;
+    border-bottom: 1px solid var(--border);
+    padding: 0 4px;
+  }
+</style>
+
+<!-- ── Scripts ──────────────────────────────────────────── -->
+<script src="js/audio-engine.js"></script>
+<script src="js/sequencer.js"></script>
+<script src="js/piano-roll.js"></script>
+<script src="js/mixer.js"></script>
+<script src="js/playlist.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/auto-tune.js"></script>
+<script src="js/recorder.js"></script>
+<script src="js/ai-suggester.js"></script>
+<script src="js/app.js"></script>
+
+<!-- Global utility functions (called from inline HTML) -->
+<script>
+  function sequencerRandomizeAll() {
+    if (!window.app) return;
+    app.sequencer.channels.forEach((_, i) => app.sequencer.randomizeChannel(i));
+    app._refreshChannelRack();
+    showToast('🎲 All channels randomized!');
+  }
+  function sequencerClearAll() {
+    if (!window.app) return;
+    app.sequencer.channels.forEach((_, i) => app.sequencer.clearChannel(i));
+    app._refreshChannelRack();
+    showToast('🗑 All channels cleared');
+  }
+
+  // Build piano roll channel selector dynamically
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      const sel = document.getElementById('pr-channel-select');
+      if (sel && window.app) {
+        app.sequencer.channels.forEach((ch, i) => {
+          const opt = document.createElement('option');
+          opt.value = i;
+          opt.textContent = ch.name;
+          sel.appendChild(opt);
+        });
+        sel.value = app.sequencer.pianoRollChannel;
+      }
+    }, 200);
+
+    // Mode toggle
+    document.getElementById('mode-pattern').addEventListener('click', e => {
+      e.currentTarget.classList.add('active');
+      document.getElementById('mode-song').classList.remove('active');
+      document.getElementById('status-mode').textContent = 'Pattern Mode';
+    });
+    document.getElementById('mode-song').addEventListener('click', e => {
+      e.currentTarget.classList.add('active');
+      document.getElementById('mode-pattern').classList.remove('active');
+      document.getElementById('status-mode').textContent = 'Song Mode';
+    });
+
+    // Status step update
+    document.addEventListener('keydown', () => {
+      if (window.app) {
+        document.getElementById('status-step').textContent =
+          window.app.sequencer.isPlaying ? `${window.app.sequencer.currentStep + 1}` : '—';
+      }
+    });
+
+    // Sync rack resize
+    const rackEl = document.getElementById('channel-rack');
+    const resizeHandle = document.getElementById('rack-resize');
+    const rightPanel = document.getElementById('right-panel');
+    if (resizeHandle && rackEl && rightPanel) {
+      makeResizeHandle(resizeHandle, rackEl, rightPanel, 280, 350);
+    }
+
+    // CPU usage estimator (mock)
+    setInterval(() => {
+      const cpu = window.app && window.app.sequencer.isPlaying
+        ? Math.round(5 + Math.random() * 8)
+        : Math.round(1 + Math.random() * 2);
+      const el = document.getElementById('status-cpu');
+      if (el) el.textContent = `${cpu}%`;
+    }, 1000);
+  });
+</script>
+
+</body>
+</html>
