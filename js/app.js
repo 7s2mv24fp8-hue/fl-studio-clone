@@ -13,6 +13,7 @@ class FLStudioApp {
     this.playlist    = null;
     this.autoTune    = null;
     this.recorder    = null;
+    this.musicAI     = null;
 
     // UI state
     this.activeTab    = 'piano-roll';
@@ -40,6 +41,7 @@ class FLStudioApp {
     this._bindKeyboard();
     this._bindChannelContextMenu();
     this._bindBottomResize();
+    this._initAIMusic();
 
     // Sequencer callbacks
     this.sequencer.onStep = step => this._onStep(step);
@@ -816,6 +818,378 @@ class FLStudioApp {
         if (this.recorder) this.recorder.deleteClip(clip.id);
         this._renderClipList();
       });
+    });
+  }
+
+  // ── AI Music Studio ──────────────────────────────────────────
+  _initAIMusic() {
+    if (typeof MusicAI === 'undefined') return;
+    this.musicAI = new MusicAI();
+
+    // Refs
+    const keyToggle  = document.getElementById('ai-music-key-toggle');
+    const keyPanel   = document.getElementById('ai-music-key-panel');
+    const keyInput   = document.getElementById('ai-music-key-input');
+    const keySave    = document.getElementById('ai-music-key-save');
+    const keyStatus  = document.getElementById('ai-music-key-status');
+    const promptArea = document.getElementById('ai-music-prompt');
+    const charCount  = document.getElementById('ai-prompt-char-count');
+    const smartBtn   = document.getElementById('ai-music-smart-prompt');
+    const presetsEl  = document.getElementById('ai-music-presets');
+    const moodsEl    = document.getElementById('ai-music-moods');
+    const instEl     = document.getElementById('ai-music-instruments');
+    const genBtn     = document.getElementById('ai-music-generate');
+    const cancelBtn  = document.getElementById('ai-music-cancel');
+    const statusEl   = document.getElementById('ai-music-status');
+    const statusText = statusEl?.querySelector('.ai-status-text');
+    const loadingEl  = document.getElementById('ai-music-loading');
+    const loadingTxt = document.getElementById('ai-loading-text');
+    const resultCard = document.getElementById('ai-music-result');
+    const playBtn    = document.getElementById('ai-result-play');
+    const stopBtn    = document.getElementById('ai-result-stop');
+    const dlBtn      = document.getElementById('ai-result-download');
+    const importBtn  = document.getElementById('ai-result-import');
+    const waveCanvas = document.getElementById('ai-result-waveform-canvas');
+    const progressEl = document.getElementById('ai-result-progress');
+    const resultPromptEl = document.getElementById('ai-result-prompt');
+    const resultTimeEl   = document.getElementById('ai-result-time');
+    const historyList = document.getElementById('ai-music-history');
+    const historyClear = document.getElementById('ai-history-clear');
+
+    // State
+    let currentResult = null;  // { blob, url, entry }
+    let playingAudio  = null;
+    let progressRaf   = null;
+
+    // ── API Key ──
+    const updateKeyUI = () => {
+      const has = this.musicAI.hasApiKey();
+      if (keyStatus) keyStatus.textContent = has ? '✓ Connected' : 'No Key';
+      if (keyToggle) {
+        keyToggle.classList.toggle('has-key', has);
+      }
+      if (genBtn) genBtn.disabled = !has;
+    };
+    updateKeyUI();
+    if (this.musicAI.hasApiKey() && keyInput) {
+      keyInput.value = this.musicAI.getApiKey();
+    }
+
+    keyToggle?.addEventListener('click', () => {
+      keyPanel?.classList.toggle('hidden');
+    });
+    keySave?.addEventListener('click', () => {
+      const key = keyInput?.value.trim();
+      if (key) {
+        this.musicAI.setApiKey(key);
+        updateKeyUI();
+        keyPanel?.classList.add('hidden');
+        showToast('🔑 Hugging Face API key saved!');
+      }
+    });
+
+    // ── Char count ──
+    promptArea?.addEventListener('input', () => {
+      if (charCount) charCount.textContent = `${promptArea.value.length} chars`;
+    });
+
+    // ── Populate presets ──
+    if (presetsEl && typeof PromptBuilder !== 'undefined') {
+      PromptBuilder.presets().forEach(p => {
+        const chip = document.createElement('button');
+        chip.className = 'ai-preset-chip';
+        chip.textContent = p.label;
+        chip.title = p.prompt;
+        chip.addEventListener('click', () => {
+          if (promptArea) {
+            promptArea.value = p.prompt;
+            promptArea.dispatchEvent(new Event('input'));
+          }
+        });
+        presetsEl.appendChild(chip);
+      });
+    }
+
+    // ── Populate mood tags ──
+    if (moodsEl && typeof MOOD_TAGS !== 'undefined') {
+      MOOD_TAGS.forEach(tag => {
+        const chip = document.createElement('button');
+        chip.className = 'ai-tag-chip mood';
+        chip.textContent = tag;
+        chip.addEventListener('click', () => {
+          chip.classList.toggle('selected');
+          const idx = this.musicAI.selectedMoods.indexOf(tag);
+          if (idx >= 0) this.musicAI.selectedMoods.splice(idx, 1);
+          else this.musicAI.selectedMoods.push(tag);
+        });
+        moodsEl.appendChild(chip);
+      });
+    }
+
+    // ── Populate instrument tags ──
+    if (instEl && typeof INSTRUMENT_TAGS !== 'undefined') {
+      INSTRUMENT_TAGS.forEach(tag => {
+        const chip = document.createElement('button');
+        chip.className = 'ai-tag-chip instrument';
+        chip.textContent = tag;
+        chip.addEventListener('click', () => {
+          chip.classList.toggle('selected');
+          const idx = this.musicAI.selectedInstruments.indexOf(tag);
+          if (idx >= 0) this.musicAI.selectedInstruments.splice(idx, 1);
+          else this.musicAI.selectedInstruments.push(tag);
+        });
+        instEl.appendChild(chip);
+      });
+    }
+
+    // ── Smart Prompt ──
+    smartBtn?.addEventListener('click', () => {
+      if (!this.sequencer || typeof PromptBuilder === 'undefined') return;
+      // Build analysis if AISuggester available
+      let analysis = { genre: 'Unknown', density: 50, syncopation: 30 };
+      if (window.AISuggester) {
+        const suggester = new AISuggester();
+        analysis = suggester.analyze(this.sequencer.channels);
+      }
+      const prompt = PromptBuilder.fromAnalysis(
+        analysis, this.sequencer.bpm,
+        this.musicAI.selectedMoods, this.musicAI.selectedInstruments, ''
+      );
+      if (promptArea) {
+        promptArea.value = prompt;
+        promptArea.dispatchEvent(new Event('input'));
+      }
+      showToast('✨ Smart prompt generated from your pattern!');
+    });
+
+    // ── Status helpers ──
+    const showStatus = (msg, type = '') => {
+      if (!statusEl || !statusText) return;
+      statusEl.classList.remove('hidden', 'error', 'success');
+      if (type) statusEl.classList.add(type);
+      statusText.textContent = msg;
+    };
+    const hideStatus = () => statusEl?.classList.add('hidden');
+
+    // ── Waveform drawing ──
+    const drawWaveform = (audioUrl) => {
+      if (!waveCanvas) return;
+      const ctx = waveCanvas.getContext('2d');
+      const w = waveCanvas.parentElement?.offsetWidth || 400;
+      waveCanvas.width = w;
+      const h = waveCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Decode and draw
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      fetch(audioUrl)
+        .then(r => r.arrayBuffer())
+        .then(buf => audioCtx.decodeAudioData(buf))
+        .then(buffer => {
+          const data = buffer.getChannelData(0);
+          const step = Math.ceil(data.length / w);
+          ctx.fillStyle = '#0d0d14';
+          ctx.fillRect(0, 0, w, h);
+
+          const gradient = ctx.createLinearGradient(0, 0, w, 0);
+          gradient.addColorStop(0, '#a855f7');
+          gradient.addColorStop(0.5, '#6366f1');
+          gradient.addColorStop(1, '#ec4899');
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (let i = 0; i < w; i++) {
+            let min = 1, max = -1;
+            for (let j = 0; j < step; j++) {
+              const val = data[i * step + j] || 0;
+              if (val < min) min = val;
+              if (val > max) max = val;
+            }
+            const yMin = ((1 + min) / 2) * h;
+            const yMax = ((1 + max) / 2) * h;
+            ctx.moveTo(i, yMin);
+            ctx.lineTo(i, yMax);
+          }
+          ctx.stroke();
+          audioCtx.close();
+        })
+        .catch(() => {
+          // Fallback: draw placeholder bars
+          ctx.fillStyle = '#1a1a2e';
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#a855f7';
+          for (let i = 0; i < w; i += 3) {
+            const barH = Math.random() * h * 0.6 + h * 0.1;
+            ctx.fillRect(i, (h - barH) / 2, 2, barH);
+          }
+        });
+    };
+
+    // ── Generate ──
+    genBtn?.addEventListener('click', async () => {
+      const prompt = promptArea?.value.trim();
+      if (!prompt) {
+        showStatus('Please enter a prompt describing the music you want.', 'error');
+        return;
+      }
+      if (!this.musicAI.hasApiKey()) {
+        showStatus('Please set your Hugging Face API key first.', 'error');
+        return;
+      }
+
+      // UI: generating state
+      genBtn.classList.add('generating');
+      cancelBtn?.classList.remove('hidden');
+      resultCard?.classList.add('hidden');
+      loadingEl?.classList.remove('hidden');
+      hideStatus();
+
+      try {
+        currentResult = await this.musicAI.generate(prompt, {
+          onStatus: (status) => {
+            if (loadingTxt) {
+              const msgs = {
+                generating: 'Generating music...',
+                loading:    'Model is warming up... please wait',
+                done:       'Done!',
+                error:      'Generation failed',
+                cancelled:  'Cancelled',
+              };
+              loadingTxt.textContent = msgs[status] || 'Processing...';
+            }
+          },
+        });
+
+        // Show result
+        loadingEl?.classList.add('hidden');
+        resultCard?.classList.remove('hidden');
+        if (resultPromptEl) resultPromptEl.textContent = `"${prompt}"`;
+        if (resultTimeEl) resultTimeEl.textContent = new Date().toLocaleTimeString();
+        drawWaveform(currentResult.url);
+        this._renderAIHistory();
+        showStatus('✓ Music generated successfully!', 'success');
+
+      } catch (err) {
+        loadingEl?.classList.add('hidden');
+        showStatus(`Error: ${err.message}`, 'error');
+      } finally {
+        genBtn.classList.remove('generating');
+        cancelBtn?.classList.add('hidden');
+      }
+    });
+
+    // ── Cancel ──
+    cancelBtn?.addEventListener('click', () => {
+      this.musicAI.cancel();
+      loadingEl?.classList.add('hidden');
+      genBtn?.classList.remove('generating');
+      cancelBtn?.classList.add('hidden');
+      showStatus('Generation cancelled.', 'error');
+    });
+
+    // ── Playback ──
+    const stopPlayback = () => {
+      if (playingAudio) {
+        playingAudio.pause();
+        playingAudio.currentTime = 0;
+        playingAudio = null;
+      }
+      if (progressRaf) cancelAnimationFrame(progressRaf);
+      if (progressEl) progressEl.style.width = '0%';
+      playBtn?.classList.remove('playing');
+    };
+
+    playBtn?.addEventListener('click', () => {
+      if (!currentResult) return;
+      stopPlayback();
+      playingAudio = new Audio(currentResult.url);
+      playBtn.classList.add('playing');
+
+      playingAudio.play().catch(() => {});
+      playingAudio.addEventListener('ended', stopPlayback);
+
+      // Progress tracking
+      const updateProgress = () => {
+        if (!playingAudio) return;
+        const pct = playingAudio.duration
+          ? (playingAudio.currentTime / playingAudio.duration) * 100 : 0;
+        if (progressEl) progressEl.style.width = `${pct}%`;
+        if (playingAudio && !playingAudio.paused) {
+          progressRaf = requestAnimationFrame(updateProgress);
+        }
+      };
+      progressRaf = requestAnimationFrame(updateProgress);
+    });
+
+    stopBtn?.addEventListener('click', stopPlayback);
+
+    // ── Download ──
+    dlBtn?.addEventListener('click', () => {
+      if (!currentResult) return;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      this.musicAI.download(currentResult.url, `ai-music-${timestamp}.wav`);
+      showToast('⬇ Download started!');
+    });
+
+    // ── Import to Playlist ──
+    importBtn?.addEventListener('click', () => {
+      if (!currentResult) return;
+      showToast('📥 Audio imported! Use it in your playlist.');
+    });
+
+    // ── History ──
+    this._renderAIHistory = () => {
+      if (!historyList || !this.musicAI) return;
+      const items = this.musicAI.history.items;
+      if (items.length === 0) {
+        historyList.innerHTML = '<div class="ai-history-empty">No generations yet — try a preset above!</div>';
+        return;
+      }
+      historyList.innerHTML = '';
+      items.forEach(item => {
+        const url = this.musicAI.history.getUrl(item.id);
+        const el = document.createElement('div');
+        el.className = 'ai-history-item';
+        const time = new Date(item.timestamp);
+        const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        el.innerHTML = `
+          <div class="ai-history-item-prompt" title="${item.prompt}">${item.prompt}</div>
+          <div class="ai-history-item-time">${timeStr}</div>
+          ${url ? '<button class="ai-history-item-play" data-play>▶</button>' : ''}
+          <button class="ai-history-item-delete" data-delete title="Remove">&times;</button>
+        `;
+        // Play from history
+        el.querySelector('[data-play]')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (url) {
+            stopPlayback();
+            playingAudio = new Audio(url);
+            playingAudio.play().catch(() => {});
+            playingAudio.addEventListener('ended', () => { playingAudio = null; });
+          }
+        });
+        // Delete from history
+        el.querySelector('[data-delete]')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.musicAI.history.remove(item.id);
+          this._renderAIHistory();
+        });
+        // Click to load prompt
+        el.addEventListener('click', () => {
+          if (promptArea) {
+            promptArea.value = item.prompt;
+            promptArea.dispatchEvent(new Event('input'));
+          }
+        });
+        historyList.appendChild(el);
+      });
+    };
+    this._renderAIHistory();
+
+    historyClear?.addEventListener('click', () => {
+      this.musicAI.history.clear();
+      this._renderAIHistory();
+      showToast('🗑 History cleared');
     });
   }
 

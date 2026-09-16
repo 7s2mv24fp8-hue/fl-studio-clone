@@ -204,6 +204,10 @@
           <span class="tab-icon">🎤</span> Record
           <span class="rec-dot"></span>
         </button>
+        <button class="right-tab ai-music-tab" data-tab="ai-music">
+          <span class="tab-icon">🎵</span> AI Music
+          <span class="ai-music-dot"></span>
+        </button>
       </div>
 
       <!-- Piano Roll tab -->
@@ -431,6 +435,163 @@
         </div><!-- #record-view -->
       </div><!-- #tab-record -->
 
+      <!-- AI Music tab -->
+      <div id="tab-ai-music" class="tab-content">
+        <div id="ai-music-view">
+
+          <!-- Top bar -->
+          <div id="ai-music-topbar">
+            <div class="ai-music-title">
+              <span class="ai-music-icon">🎵</span>
+              <span>AI Music <strong>Studio</strong></span>
+              <span class="ai-music-badge">MusicGen</span>
+            </div>
+            <div class="ai-music-topbar-right">
+              <button id="ai-music-key-toggle" class="ai-music-key-btn" title="API Key Settings">
+                🔑 <span id="ai-music-key-status">No Key</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- API Key setup (collapsible) -->
+          <div id="ai-music-key-panel" class="ai-music-key-panel hidden">
+            <div class="ai-key-panel-inner">
+              <label class="ai-key-label">Hugging Face API Token</label>
+              <div class="ai-key-input-row">
+                <input type="password" id="ai-music-key-input" class="ai-key-input" placeholder="hf_xxxxxxxxxxxx" autocomplete="off">
+                <button id="ai-music-key-save" class="ai-key-save-btn">Save</button>
+              </div>
+              <div class="ai-key-hint">
+                Get a free token at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main body -->
+          <div id="ai-music-body">
+
+            <!-- Left: Prompt builder -->
+            <div id="ai-music-prompt-panel">
+
+              <!-- Prompt textarea -->
+              <div class="ai-prompt-section">
+                <label class="ai-prompt-label">Describe the music you want</label>
+                <textarea id="ai-music-prompt" class="ai-prompt-textarea" rows="3" placeholder="e.g. lo-fi hip hop beat, chill piano, rainy day vibes..."></textarea>
+                <div class="ai-prompt-actions">
+                  <button id="ai-music-smart-prompt" class="ai-smart-prompt-btn" title="Auto-generate prompt from current DAW state">
+                    ✨ Smart Prompt
+                  </button>
+                  <span id="ai-prompt-char-count" class="ai-char-count">0 chars</span>
+                </div>
+              </div>
+
+              <!-- Preset prompts -->
+              <div class="ai-prompt-section">
+                <label class="ai-prompt-label">Quick Presets</label>
+                <div id="ai-music-presets" class="ai-presets-grid">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Mood tags -->
+              <div class="ai-prompt-section">
+                <label class="ai-prompt-label">Mood</label>
+                <div id="ai-music-moods" class="ai-tags-wrap">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Instrument tags -->
+              <div class="ai-prompt-section">
+                <label class="ai-prompt-label">Instruments</label>
+                <div id="ai-music-instruments" class="ai-tags-wrap">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Generate button -->
+              <div class="ai-generate-section">
+                <button id="ai-music-generate" class="ai-generate-btn" disabled>
+                  <span class="ai-gen-icon">🚀</span>
+                  <span class="ai-gen-text">Generate Music</span>
+                  <span class="ai-gen-spinner"></span>
+                </button>
+                <button id="ai-music-cancel" class="ai-cancel-btn hidden">
+                  ✕ Cancel
+                </button>
+              </div>
+
+              <!-- Status -->
+              <div id="ai-music-status" class="ai-status hidden">
+                <div class="ai-status-icon"></div>
+                <div class="ai-status-text"></div>
+              </div>
+
+            </div><!-- #ai-music-prompt-panel -->
+
+            <!-- Right: Results & History -->
+            <div id="ai-music-results-panel">
+
+              <!-- Current result -->
+              <div id="ai-music-result" class="ai-result-card hidden">
+                <div class="ai-result-header">
+                  <span class="ai-result-title">Generated Track</span>
+                  <span id="ai-result-time" class="ai-result-time"></span>
+                </div>
+                <div class="ai-result-waveform">
+                  <canvas id="ai-result-waveform-canvas" height="60"></canvas>
+                  <div id="ai-result-progress" class="ai-result-progress"></div>
+                </div>
+                <div class="ai-result-prompt" id="ai-result-prompt"></div>
+                <div class="ai-result-controls">
+                  <button id="ai-result-play" class="ai-ctrl-btn play" title="Play">
+                    <svg viewBox="0 0 16 16" width="14" fill="currentColor"><polygon points="3,2 13,8 3,14"/></svg>
+                  </button>
+                  <button id="ai-result-stop" class="ai-ctrl-btn stop" title="Stop">
+                    <svg viewBox="0 0 16 16" width="12" fill="currentColor"><rect x="2" y="2" width="12" height="12" rx="1"/></svg>
+                  </button>
+                  <button id="ai-result-download" class="ai-ctrl-btn download" title="Download WAV">
+                    ⬇ Download
+                  </button>
+                  <button id="ai-result-import" class="ai-ctrl-btn import" title="Import to Playlist">
+                    📥 Import
+                  </button>
+                </div>
+              </div>
+
+              <!-- Loading animation -->
+              <div id="ai-music-loading" class="ai-loading hidden">
+                <div class="ai-loading-bars">
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                  <div class="ai-bar"></div>
+                </div>
+                <div id="ai-loading-text" class="ai-loading-text">Generating music...</div>
+                <div class="ai-loading-sub">This may take 10–30 seconds on first request</div>
+              </div>
+
+              <!-- History -->
+              <div class="ai-history-section">
+                <div class="ai-history-header">
+                  <span class="ai-history-title">📜 Generation History</span>
+                  <button id="ai-history-clear" class="ai-history-clear-btn" title="Clear all history">Clear</button>
+                </div>
+                <div id="ai-music-history" class="ai-history-list">
+                  <div class="ai-history-empty">No generations yet — try a preset above!</div>
+                </div>
+              </div>
+
+            </div><!-- #ai-music-results-panel -->
+
+          </div><!-- #ai-music-body -->
+
+        </div><!-- #ai-music-view -->
+      </div><!-- #tab-ai-music -->
+
     </div>
   </div>
 
@@ -559,6 +720,7 @@
 <script src="js/auto-tune.js"></script>
 <script src="js/recorder.js"></script>
 <script src="js/ai-suggester.js"></script>
+<script src="js/music-ai.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Global utility functions (called from inline HTML) -->
