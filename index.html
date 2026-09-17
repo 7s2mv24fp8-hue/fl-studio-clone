@@ -208,6 +208,10 @@
           <span class="tab-icon">🎵</span> AI Music
           <span class="ai-music-dot"></span>
         </button>
+        <button class="right-tab ai-producer-tab" data-tab="ai-producer">
+          <span class="tab-icon">🤖</span> AI Producer
+          <span class="ai-producer-dot"></span>
+        </button>
       </div>
 
       <!-- Piano Roll tab -->
@@ -592,6 +596,119 @@
         </div><!-- #ai-music-view -->
       </div><!-- #tab-ai-music -->
 
+      <!-- AI Producer tab -->
+      <div id="tab-ai-producer" class="tab-content">
+        <div id="ai-producer-view">
+
+          <!-- Top bar -->
+          <div id="ai-producer-topbar">
+            <div class="ai-producer-title">
+              <span class="ai-producer-icon">🤖</span>
+              <span>AI <strong>Producer</strong></span>
+              <span class="ai-producer-badge">Gemini</span>
+            </div>
+            <div class="ai-producer-topbar-right">
+              <button id="ai-producer-undo" class="ai-producer-undo-btn" disabled title="Undo last AI change">
+                ↩ Undo
+              </button>
+              <button id="ai-producer-clear-chat" class="ai-producer-clear-btn" title="Clear conversation">
+                🗑 Clear
+              </button>
+              <button id="ai-producer-key-toggle" class="ai-producer-key-btn" title="API Key Settings">
+                🔑 <span id="ai-producer-key-status">No Key</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- API Key setup (collapsible) -->
+          <div id="ai-producer-key-panel" class="ai-producer-key-panel hidden">
+            <div class="ai-key-panel-inner">
+              <label class="ai-key-label">Google Gemini API Key</label>
+              <div class="ai-key-input-row">
+                <input type="password" id="ai-producer-key-input" class="ai-key-input" placeholder="AIza..." autocomplete="off">
+                <button id="ai-producer-key-save" class="ai-key-save-btn">Save</button>
+              </div>
+              <div class="ai-key-hint">
+                Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Main body -->
+          <div id="ai-producer-body">
+
+            <!-- Left: Controls -->
+            <div id="ai-producer-controls">
+
+              <!-- Quick Actions -->
+              <div class="aip-section">
+                <label class="aip-section-label">Quick Actions</label>
+                <div id="ai-producer-actions" class="aip-actions-grid">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Genre selector -->
+              <div class="aip-section">
+                <label class="aip-section-label">Genre</label>
+                <div id="ai-producer-genres" class="aip-tags-wrap">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Mood selector -->
+              <div class="aip-section">
+                <label class="aip-section-label">Mood</label>
+                <div id="ai-producer-moods" class="aip-tags-wrap">
+                  <!-- Filled dynamically -->
+                </div>
+              </div>
+
+              <!-- Status indicator -->
+              <div id="ai-producer-status" class="aip-status hidden">
+                <div class="aip-status-icon"></div>
+                <div class="aip-status-text"></div>
+              </div>
+
+            </div><!-- #ai-producer-controls -->
+
+            <!-- Right: Chat -->
+            <div id="ai-producer-chat-panel">
+
+              <!-- Chat messages -->
+              <div id="ai-producer-messages" class="aip-messages">
+                <div class="aip-welcome-msg">
+                  <div class="aip-welcome-icon">🤖</div>
+                  <div class="aip-welcome-title">AI Producer</div>
+                  <div class="aip-welcome-sub">Describe the beat you want, or use a quick action. I'll create patterns, arrange, and mix-master for you.</div>
+                </div>
+              </div>
+
+              <!-- Typing indicator -->
+              <div id="ai-producer-typing" class="aip-typing hidden">
+                <div class="aip-typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+                <span class="aip-typing-label">AI is thinking...</span>
+              </div>
+
+              <!-- Chat input -->
+              <div id="ai-producer-input-bar" class="aip-input-bar">
+                <textarea id="ai-producer-input" class="aip-input" rows="1" placeholder="Describe your beat... e.g. 'dark trap beat at 140 BPM'" maxlength="1000"></textarea>
+                <button id="ai-producer-send" class="aip-send-btn" title="Send">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                  </svg>
+                </button>
+              </div>
+
+            </div><!-- #ai-producer-chat-panel -->
+
+          </div><!-- #ai-producer-body -->
+
+        </div><!-- #ai-producer-view -->
+      </div><!-- #tab-ai-producer -->
+
     </div>
   </div>
 
@@ -721,6 +838,7 @@
 <script src="js/recorder.js"></script>
 <script src="js/ai-suggester.js"></script>
 <script src="js/music-ai.js"></script>
+<script src="js/ai-producer.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Global utility functions (called from inline HTML) -->

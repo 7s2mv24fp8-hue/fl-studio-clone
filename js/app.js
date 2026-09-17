@@ -14,6 +14,7 @@ class FLStudioApp {
     this.autoTune    = null;
     this.recorder    = null;
     this.musicAI     = null;
+    this.aiProducer  = null;
 
     // UI state
     this.activeTab    = 'piano-roll';
@@ -42,6 +43,7 @@ class FLStudioApp {
     this._bindChannelContextMenu();
     this._bindBottomResize();
     this._initAIMusic();
+    this._initAIProducer();
 
     // Sequencer callbacks
     this.sequencer.onStep = step => this._onStep(step);
@@ -1190,6 +1192,304 @@ class FLStudioApp {
       this.musicAI.history.clear();
       this._renderAIHistory();
       showToast('🗑 History cleared');
+    });
+  }
+
+  // ── AI Producer (LLM Chat) ───────────────────────────────────────────────
+  _initAIProducer() {
+    if (typeof AIProducer === 'undefined') return;
+    this.aiProducer = new AIProducer();
+
+    // Refs
+    const keyToggle   = document.getElementById('ai-producer-key-toggle');
+    const keyPanel    = document.getElementById('ai-producer-key-panel');
+    const keyInput    = document.getElementById('ai-producer-key-input');
+    const keySave     = document.getElementById('ai-producer-key-save');
+    const keyStatus   = document.getElementById('ai-producer-key-status');
+    const undoBtn     = document.getElementById('ai-producer-undo');
+    const clearBtn    = document.getElementById('ai-producer-clear-chat');
+    const actionsEl   = document.getElementById('ai-producer-actions');
+    const genresEl    = document.getElementById('ai-producer-genres');
+    const moodsEl     = document.getElementById('ai-producer-moods');
+    const statusEl    = document.getElementById('ai-producer-status');
+    const statusText  = statusEl?.querySelector('.aip-status-text');
+    const messagesEl  = document.getElementById('ai-producer-messages');
+    const typingEl    = document.getElementById('ai-producer-typing');
+    const inputEl     = document.getElementById('ai-producer-input');
+    const sendBtn     = document.getElementById('ai-producer-send');
+
+    // ── API Key ──
+    const updateKeyUI = () => {
+      const has = this.aiProducer.hasApiKey();
+      if (keyStatus) keyStatus.textContent = has ? '✓ Connected' : 'No Key';
+      if (keyToggle) keyToggle.classList.toggle('has-key', has);
+      if (sendBtn) sendBtn.disabled = !has;
+    };
+    updateKeyUI();
+    if (this.aiProducer.hasApiKey() && keyInput) {
+      keyInput.value = this.aiProducer.getApiKey();
+    }
+
+    keyToggle?.addEventListener('click', () => keyPanel?.classList.toggle('hidden'));
+    keySave?.addEventListener('click', () => {
+      const key = keyInput?.value.trim();
+      if (key) {
+        this.aiProducer.setApiKey(key);
+        updateKeyUI();
+        keyPanel?.classList.add('hidden');
+        showToast('🔑 Gemini API key saved!');
+      }
+    });
+
+    // ── Undo ──
+    const updateUndoBtn = () => {
+      if (undoBtn) undoBtn.disabled = !this.aiProducer.canUndo();
+    };
+    undoBtn?.addEventListener('click', () => {
+      const ok = this.aiProducer.undo(this.sequencer, this.audioEngine);
+      if (ok) {
+        this._refreshChannelRack();
+        if (this.mixer) this.mixer.render();
+        document.getElementById('bpm-display').value = this.sequencer.bpm;
+        showToast('↩ Reverted to previous state');
+        addAIMsg('ai', 'Reverted to the previous state. Your pattern is restored.', {});
+      }
+      updateUndoBtn();
+    });
+
+    // ── Clear chat ──
+    clearBtn?.addEventListener('click', () => {
+      this.aiProducer.clearConversation();
+      if (messagesEl) {
+        messagesEl.innerHTML = `
+          <div class="aip-welcome-msg">
+            <div class="aip-welcome-icon">🤖</div>
+            <div class="aip-welcome-title">AI Producer</div>
+            <div class="aip-welcome-sub">Describe the beat you want, or use a quick action. I'll create patterns, arrange, and mix-master for you.</div>
+          </div>`;
+      }
+      updateUndoBtn();
+      showToast('🗑 Conversation cleared');
+    });
+
+    // ── Populate Quick Actions ──
+    if (actionsEl && typeof AI_PRODUCER_ACTIONS !== 'undefined') {
+      AI_PRODUCER_ACTIONS.forEach(action => {
+        const card = document.createElement('div');
+        card.className = 'aip-action-card';
+        card.dataset.action = action.id;
+        card.innerHTML = `
+          <div class="aip-action-icon">${action.icon}</div>
+          <div class="aip-action-info">
+            <div class="aip-action-label">${action.label}</div>
+            <div class="aip-action-desc">${action.desc}</div>
+          </div>`;
+        card.addEventListener('click', () => executeQuickAction(action.id, card));
+        actionsEl.appendChild(card);
+      });
+    }
+
+    // ── Populate Genre chips ──
+    if (genresEl && typeof AI_PRODUCER_GENRES !== 'undefined') {
+      AI_PRODUCER_GENRES.forEach(genre => {
+        const chip = document.createElement('button');
+        chip.className = 'aip-tag-chip genre';
+        chip.textContent = genre;
+        chip.addEventListener('click', () => {
+          chip.classList.toggle('selected');
+          const idx = this.aiProducer.selectedGenres.indexOf(genre);
+          if (idx >= 0) this.aiProducer.selectedGenres.splice(idx, 1);
+          else this.aiProducer.selectedGenres.push(genre);
+        });
+        genresEl.appendChild(chip);
+      });
+    }
+
+    // ── Populate Mood chips ──
+    if (moodsEl && typeof AI_PRODUCER_MOODS !== 'undefined') {
+      AI_PRODUCER_MOODS.forEach(mood => {
+        const chip = document.createElement('button');
+        chip.className = 'aip-tag-chip mood';
+        chip.textContent = mood;
+        chip.addEventListener('click', () => {
+          chip.classList.toggle('selected');
+          const idx = this.aiProducer.selectedMoods.indexOf(mood);
+          if (idx >= 0) this.aiProducer.selectedMoods.splice(idx, 1);
+          else this.aiProducer.selectedMoods.push(mood);
+        });
+        moodsEl.appendChild(chip);
+      });
+    }
+
+    // ── Chat message rendering ──
+    const addAIMsg = (role, text, result) => {
+      // Remove welcome message if present
+      const welcome = messagesEl?.querySelector('.aip-welcome-msg');
+      if (welcome) welcome.remove();
+
+      const el = document.createElement('div');
+      el.className = `aip-msg ${role}`;
+
+      if (role === 'user') {
+        el.innerHTML = `
+          <div class="aip-msg-avatar">👤</div>
+          <div class="aip-msg-body">
+            <div class="aip-msg-text">${escapeHTML(text)}</div>
+          </div>`;
+      } else {
+        // AI message with badges and suggestions
+        let badges = '';
+        if (result?.hasBeat) badges += '<span class="aip-msg-badge beat">🥁 Beat Applied</span>';
+        if (result?.hasMix)  badges += '<span class="aip-msg-badge mix">🎚️ Mix Applied</span>';
+        if (result?.bpm)     badges += `<span class="aip-msg-badge bpm">♩ ${result.bpm} BPM</span>`;
+
+        let suggestionsHTML = '';
+        if (result?.suggestions?.length > 0) {
+          suggestionsHTML = '<div class="aip-suggestions">' +
+            result.suggestions.map(s => `<button class="aip-suggestion-chip">${escapeHTML(s)}</button>`).join('') +
+            '</div>';
+        }
+
+        el.innerHTML = `
+          <div class="aip-msg-avatar">🤖</div>
+          <div class="aip-msg-body">
+            <div class="aip-msg-text">${escapeHTML(text)}</div>
+            ${badges ? '<div class="aip-msg-actions">' + badges + '</div>' : ''}
+            ${suggestionsHTML}
+          </div>`;
+
+        // Bind suggestion chips
+        el.querySelectorAll('.aip-suggestion-chip').forEach(chip => {
+          chip.addEventListener('click', () => {
+            if (inputEl) {
+              inputEl.value = chip.textContent;
+              sendMessage();
+            }
+          });
+        });
+      }
+
+      messagesEl?.appendChild(el);
+      // Auto-scroll to bottom
+      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    // ── Escape HTML ──
+    const escapeHTML = (str) => {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    };
+
+    // ── Send message ──
+    const sendMessage = async () => {
+      const text = inputEl?.value.trim();
+      if (!text || this.aiProducer.isProcessing) return;
+      if (!this.aiProducer.hasApiKey()) {
+        showToast('Please set your Gemini API key first 🔑');
+        keyPanel?.classList.remove('hidden');
+        return;
+      }
+
+      // Show user message
+      addAIMsg('user', text, {});
+      if (inputEl) inputEl.value = '';
+
+      // Show typing
+      typingEl?.classList.remove('hidden');
+      if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      try {
+        if (!this.audioEngine.initialized) this.audioEngine.init();
+        const result = await this.aiProducer.produce(text, this.sequencer, this.audioEngine, {
+          onStatus: (status) => {
+            const msgs = { thinking: 'AI is thinking...', done: 'Done!', error: 'Error', cancelled: 'Cancelled' };
+            const labelEl = typingEl?.querySelector('.aip-typing-label');
+            if (labelEl) labelEl.textContent = msgs[status] || 'Processing...';
+          },
+        });
+
+        typingEl?.classList.add('hidden');
+        addAIMsg('ai', result.message, result);
+
+        // Refresh DAW UI
+        if (result.hasBeat) {
+          this._refreshChannelRack();
+          document.getElementById('bpm-display').value = this.sequencer.bpm;
+        }
+        if (result.hasMix && this.mixer) {
+          this.mixer.render();
+        }
+        updateUndoBtn();
+
+      } catch (err) {
+        typingEl?.classList.add('hidden');
+        addAIMsg('ai', `Error: ${err.message}`, {});
+      }
+    };
+
+    // ── Quick action executor ──
+    const executeQuickAction = async (actionId, card) => {
+      if (this.aiProducer.isProcessing) return;
+      if (!this.aiProducer.hasApiKey()) {
+        showToast('Please set your Gemini API key first 🔑');
+        keyPanel?.classList.remove('hidden');
+        return;
+      }
+
+      if (!this.audioEngine.initialized) this.audioEngine.init();
+
+      card?.classList.add('processing');
+      typingEl?.classList.remove('hidden');
+
+      // Show action as user message
+      const actionLabel = AI_PRODUCER_ACTIONS.find(a => a.id === actionId)?.label || actionId;
+      addAIMsg('user', `⚡ ${actionLabel}`, {});
+
+      try {
+        let result;
+        switch (actionId) {
+          case 'full':      result = await this.aiProducer.fullProduction(this.sequencer, this.audioEngine, { onStatus: () => {} }); break;
+          case 'beat':      result = await this.aiProducer.generateBeat(this.sequencer, this.audioEngine, { onStatus: () => {} }); break;
+          case 'mix':       result = await this.aiProducer.mixAndMaster(this.sequencer, this.audioEngine, { onStatus: () => {} }); break;
+          case 'variation':  result = await this.aiProducer.addVariation(this.sequencer, this.audioEngine, { onStatus: () => {} }); break;
+          case 'random':    result = await this.aiProducer.surpriseMe(this.sequencer, this.audioEngine, { onStatus: () => {} }); break;
+          default:          result = await this.aiProducer.produce(actionId, this.sequencer, this.audioEngine, { onStatus: () => {} });
+        }
+
+        typingEl?.classList.add('hidden');
+        addAIMsg('ai', result.message, result);
+
+        if (result.hasBeat) {
+          this._refreshChannelRack();
+          document.getElementById('bpm-display').value = this.sequencer.bpm;
+        }
+        if (result.hasMix && this.mixer) {
+          this.mixer.render();
+        }
+        updateUndoBtn();
+
+      } catch (err) {
+        typingEl?.classList.add('hidden');
+        addAIMsg('ai', `Error: ${err.message}`, {});
+      } finally {
+        card?.classList.remove('processing');
+      }
+    };
+
+    // ── Input bindings ──
+    sendBtn?.addEventListener('click', sendMessage);
+    inputEl?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Auto-resize textarea
+    inputEl?.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
     });
   }
 
