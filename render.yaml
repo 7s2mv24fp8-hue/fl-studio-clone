@@ -1,0 +1,29 @@
+# Render Blueprint Specification for BeYou Studio Web DAW
+# Documentation: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: beyou-studio
+    runtime: python
+    region: oregon
+    plan: free
+    branch: master
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python server.py"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: rahul
+      - key: ADMIN_EMAIL
+        value: rahul@flstudio.local
+      - key: ADMIN_PASSWORD
+        value: password123
+      - key: ADMIN_FULL_NAME
+        value: Rahul Sharma
+      - key: HF_TOKEN
+        sync: false

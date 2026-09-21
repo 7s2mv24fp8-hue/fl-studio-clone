@@ -42,8 +42,81 @@ const INSTRUMENT_TAGS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. HUGGING FACE MUSIC CLIENT
+// 1. MUSIC AUDIO CLIENTS (Local Music Server & Hugging Face MusicGen)
 // ─────────────────────────────────────────────────────────────────────────────
+
+class LocalMusicClient {
+  constructor() {
+    const defaultOrigin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'http://localhost:8000';
+    this.baseUrl = localStorage.getItem('fl-studio-local-audio-url') || defaultOrigin;
+    this._abortCtrl = null;
+  }
+
+  setUrl(url) {
+    if (url) {
+      this.baseUrl = url.trim().replace(/\/+$/, '');
+      localStorage.setItem('fl-studio-local-audio-url', this.baseUrl);
+    }
+  }
+
+  async testConnection() {
+    try {
+      const resp = await fetch(`${this.baseUrl}/health`, { method: 'GET' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json().catch(() => ({}));
+      return {
+        ok: true,
+        message: `Connected to Local Music Server! Engine: ${data.engine || 'AudioCraft/MusicGen'}`,
+        data,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: `Cannot connect to ${this.baseUrl}. Run python scripts/local_music_server.py first.`,
+      };
+    }
+  }
+
+  async generate(prompt, { onStatus = () => {} } = {}) {
+    if (this._abortCtrl) this._abortCtrl.abort();
+    this._abortCtrl = new AbortController();
+
+    onStatus('generating');
+    try {
+      const resp = await fetch(`${this.baseUrl}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, duration: 8 }),
+        signal: this._abortCtrl.signal,
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Local music server returned HTTP ${resp.status}`);
+      }
+
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      onStatus('done');
+      this._abortCtrl = null;
+      return { blob, url };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        onStatus('cancelled');
+        throw new Error('Request cancelled');
+      }
+      onStatus('error');
+      this._abortCtrl = null;
+      throw err;
+    }
+  }
+
+  cancel() {
+    if (this._abortCtrl) {
+      this._abortCtrl.abort();
+      this._abortCtrl = null;
+    }
+  }
+}
 
 class HuggingFaceMusic {
   constructor() {
@@ -303,28 +376,45 @@ class GenerationHistory {
 
 class MusicAI {
   constructor() {
-    this.hf       = new HuggingFaceMusic();
-    this.history  = new GenerationHistory();
+    this.hf         = new HuggingFaceMusic();
+    this.localAudio = new LocalMusicClient();
+    this.history    = new GenerationHistory();
 
+    this.provider = localStorage.getItem('fl-studio-music-audio-provider') || (this.hf.hasKey() ? 'hf' : 'local');
     this.isGenerating = false;
     this.currentAudio = null;
     this.selectedMoods = [];
     this.selectedInstruments = [];
   }
 
+  setProvider(p) {
+    if (['hf', 'local'].includes(p)) {
+      this.provider = p;
+      localStorage.setItem('fl-studio-music-audio-provider', p);
+    }
+  }
+
+  getProvider() { return this.provider; }
+
+  getActiveClient() {
+    return this.provider === 'local' ? this.localAudio : this.hf;
+  }
+
   setApiKey(key) { this.hf.setApiKey(key); }
-  hasApiKey()    { return this.hf.hasKey(); }
+  hasApiKey()    { return this.provider === 'local' ? true : this.hf.hasKey(); }
   getApiKey()    { return this.hf.apiKey; }
 
   async generate(prompt, { onStatus = () => {} } = {}) {
+    const client = this.getActiveClient();
+
     if (this.isGenerating) {
-      this.hf.cancel();
+      client.cancel();
       await new Promise(r => setTimeout(r, 100));
     }
 
     this.isGenerating = true;
     try {
-      const result = await this.hf.generate(prompt, { onStatus });
+      const result = await client.generate(prompt, { onStatus });
       const entry = this.history.add(prompt, result.blob, result.url);
       this.isGenerating = false;
       return { ...result, entry };
@@ -371,7 +461,7 @@ class MusicAI {
   }
 
   cancel() {
-    this.hf.cancel();
+    this.getActiveClient().cancel();
     this.isGenerating = false;
   }
 }
@@ -379,9 +469,10 @@ class MusicAI {
 // ─────────────────────────────────────────────────────────────────────────────
 // Expose
 // ─────────────────────────────────────────────────────────────────────────────
-window.MusicAI          = MusicAI;
-window.HuggingFaceMusic = HuggingFaceMusic;
-window.PromptBuilder    = PromptBuilder;
+window.MusicAI           = MusicAI;
+window.LocalMusicClient  = LocalMusicClient;
+window.HuggingFaceMusic  = HuggingFaceMusic;
+window.PromptBuilder     = PromptBuilder;
 window.GenerationHistory = GenerationHistory;
-window.MOOD_TAGS        = MOOD_TAGS;
-window.INSTRUMENT_TAGS  = INSTRUMENT_TAGS;
+window.MOOD_TAGS         = MOOD_TAGS;
+window.INSTRUMENT_TAGS   = INSTRUMENT_TAGS;

@@ -45,6 +45,21 @@ class Playlist {
     this.tracks[7].blocks = [{bar: 0, length: 4}];
   }
 
+  syncWithChannels() {
+    const existingMap = new Map();
+    this.tracks.forEach(t => existingMap.set(t.name, t.blocks));
+
+    this.tracks = this.sequencer.channels.map(ch => ({
+      name: ch.name,
+      color: ch.color,
+      blocks: existingMap.get(ch.name) || (ch.type === 'audio' ? [{ bar: 0, length: 4 }] : []),
+    }));
+
+    this._initCanvas();
+    this._renderLabels();
+    this.render();
+  }
+
   _initCanvas() {
     const h = this.tracks.length * this.trackH;
     const w = this.bars * this.cellW;

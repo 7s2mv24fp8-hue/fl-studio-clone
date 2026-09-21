@@ -38,12 +38,14 @@ class FLStudioApp {
     this._bindTransport();
     this._bindTabs();
     this._bindBPM();
+    this._bindProjectTitle();
     this._bindMasterKnobs();
     this._bindKeyboard();
     this._bindChannelContextMenu();
     this._bindBottomResize();
     this._initAIMusic();
     this._initAIProducer();
+    this._initBackendIntegration();
 
     // Sequencer callbacks
     this.sequencer.onStep = step => this._onStep(step);
@@ -53,7 +55,7 @@ class FLStudioApp {
     // Init position display
     this._updatePositionDisplay(0);
 
-    showToast('🎵 FL Studio Clone loaded — Press Space to play!', 3000);
+    showToast('🎵 BeYou Studio loaded — Press Space to play!', 3000);
   }
 
   // ── Channel Rack ───────────────────────────────────────────────
@@ -78,15 +80,52 @@ class FLStudioApp {
     bar.style.background = ch.color;
     row.appendChild(bar);
 
-    // Label (click → open piano roll for synth channels)
+    // Label (click → open piano roll for synth, or preview for audio)
     const label = document.createElement('div');
     label.className = 'channel-label';
     label.textContent = ch.name;
-    label.title = `Click to edit in Piano Roll`;
+    label.title = ch.type === 'audio' ? 'Recorded Audio Track (Click to audition)' : 'Click to edit in Piano Roll';
     label.style.color = ch.color;
+
+    if (ch.type === 'audio') {
+      const audioBadge = document.createElement('span');
+      audioBadge.className = 'channel-audio-badge';
+      audioBadge.textContent = 'VOCAL';
+      label.appendChild(audioBadge);
+
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'ch-preview-btn';
+      previewBtn.textContent = '▶';
+      previewBtn.title = 'Audition recorded voice take';
+      previewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (ch.audioBuffer) {
+          try {
+            const src = this.audioEngine.ctx.createBufferSource();
+            src.buffer = ch.audioBuffer;
+            src.connect(this.audioEngine.masterCompressor);
+            src.start();
+            showToast(`▶ Playing ${ch.name}`);
+          } catch(err) {
+            console.error(err);
+          }
+        }
+      });
+      label.appendChild(previewBtn);
+    }
+
     label.addEventListener('click', () => {
-      this._selectPianoRollChannel(ci);
-      this._switchTab('piano-roll');
+      if (ch.type === 'audio' && ch.audioBuffer) {
+        try {
+          const src = this.audioEngine.ctx.createBufferSource();
+          src.buffer = ch.audioBuffer;
+          src.connect(this.audioEngine.masterCompressor);
+          src.start();
+        } catch(err){}
+      } else {
+        this._selectPianoRollChannel(ci);
+        this._switchTab('piano-roll');
+      }
     });
     row.appendChild(label);
 
@@ -320,6 +359,10 @@ class FLStudioApp {
       this.sequencer.stop();
       playBtn.classList.remove('active', 'playing-glow');
       stopBtn.classList.add('active');
+      // If voice recording is in progress, stop and insert take
+      if (this.recorder && this.recorder.isRecording) {
+        this._stopVoiceRecording();
+      }
       // Clear step highlights
       document.querySelectorAll('.step-btn.playing').forEach(b => b.classList.remove('playing'));
       if (this.pianoRoll) { this.pianoRoll.playhead = 0; this.pianoRoll.render(); }
@@ -329,8 +372,12 @@ class FLStudioApp {
     });
 
     recordBtn.addEventListener('click', () => {
-      this.isRecording = !this.isRecording;
-      recordBtn.classList.toggle('active', this.isRecording);
+      this._toggleVoiceRecording();
+    });
+
+    // Floating recording HUD stop button
+    document.getElementById('btn-hud-stop-rec')?.addEventListener('click', () => {
+      this._stopVoiceRecording();
     });
 
     // Pattern selector
@@ -541,26 +588,16 @@ class FLStudioApp {
     // Lazy init — only create engines when tab is first visited
     // to avoid AudioContext init before user gesture requirement.
 
-    const ensureEngines = async () => {
-      if (this.autoTune) return;
-      if (!this.audioEngine.initialized) this.audioEngine.init();
-      this.autoTune = new AutoTuneEngine(this.audioEngine.ctx);
-      this.recorder = new RecorderEngine(this.audioEngine, this.autoTune);
-
-      this.recorder.onStateChange = state => this._updateRecState(state);
-      this.recorder.onClipAdded   = clip  => this._renderClipList();
-      this.recorder.onPitchUpdate = ()    => this._updatePitchUI();
-    };
-
     // ── ARM button ──
     document.getElementById('btn-arm').addEventListener('click', async () => {
-      await ensureEngines();
+      await this._ensureRecordingEngines();
       if (!this.recorder.isArmed) {
         const ok = await this.recorder.requestMic();
         if (ok) {
           document.getElementById('btn-arm').classList.add('armed');
           document.getElementById('btn-rec').disabled = false;
           this._startMicLevelMeter();
+          showToast('🎙️ Microphone armed! Click Record to start singing/speaking.');
         }
       } else {
         // Dis-arm
@@ -575,34 +612,13 @@ class FLStudioApp {
     });
 
     // ── RECORD button ──
-    document.getElementById('btn-rec').addEventListener('click', async () => {
-      await ensureEngines();
-      if (this.recorder.isRecording) return;
-      await this.recorder.startRecording();
-      document.getElementById('btn-rec').classList.add('recording');
-      document.getElementById('btn-rec-stop').classList.add('visible');
-      // Mark record tab
-      document.querySelector('.right-tab.record-tab')?.classList.add('is-recording');
-      // Start timer
-      const startMs = Date.now();
-      this._recTimerInterval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startMs) / 1000);
-        const m = Math.floor(elapsed / 60);
-        const s = elapsed % 60;
-        const el = document.getElementById('rec-time-display');
-        if (el) { el.textContent = `${m}:${String(s).padStart(2,'0')}`; el.classList.add('recording'); }
-      }, 250);
+    document.getElementById('btn-rec').addEventListener('click', () => {
+      this._toggleVoiceRecording();
     });
 
     // ── STOP button ──
     document.getElementById('btn-rec-stop').addEventListener('click', () => {
-      if (this.recorder) this.recorder.stopRecording();
-      document.getElementById('btn-rec').classList.remove('recording');
-      document.getElementById('btn-rec-stop').classList.remove('visible');
-      document.querySelector('.right-tab.record-tab')?.classList.remove('is-recording');
-      clearInterval(this._recTimerInterval);
-      const el = document.getElementById('rec-time-display');
-      if (el) { el.textContent = '0:00'; el.classList.remove('recording'); }
+      this._stopVoiceRecording();
     });
 
     // ── MONITOR button ──
@@ -786,6 +802,8 @@ class FLStudioApp {
         <div class="clip-controls">
           <button class="clip-btn play-btn" data-clip-id="${clip.id}">▶ Play</button>
           <button class="clip-btn play-btn" data-clip-id="${clip.id}" data-raw="1">▶ Raw</button>
+          <button class="clip-btn add-to-rack-btn" data-clip-id="${clip.id}" style="color:#00d4aa;font-weight:600;">➕ Add to Rack</button>
+          <button class="clip-btn add-to-pl-btn" data-clip-id="${clip.id}" style="color:#38bdf8;font-weight:600;">➕ Playlist</button>
           <button class="clip-btn delete-btn" data-clip-id="${clip.id}" data-delete="1">✕</button>
         </div>
       `;
@@ -800,6 +818,15 @@ class FLStudioApp {
           this.recorder.drawWaveform(canvas, clip, '#00d4aa');
         }
       }, 50);
+
+      // Add to Rack / Playlist buttons
+      card.querySelector('.add-to-rack-btn')?.addEventListener('click', () => {
+        this._addVocalClipToProject(clip);
+      });
+      card.querySelector('.add-to-pl-btn')?.addEventListener('click', () => {
+        this._addVocalClipToProject(clip);
+        this._switchTab('playlist');
+      });
 
       // Play buttons
       card.querySelectorAll('.play-btn').forEach(btn => {
@@ -863,28 +890,80 @@ class FLStudioApp {
     let playingAudio  = null;
     let progressRaf   = null;
 
-    // ── API Key ──
-    const updateKeyUI = () => {
+    // ── Audio Generator Provider Setup ──
+    const audioTabs       = keyPanel?.querySelectorAll('.ai-audio-tab') || [];
+    const audioContents   = keyPanel?.querySelectorAll('.ai-audio-content') || [];
+    const localUrlInput   = document.getElementById('ai-music-local-url');
+    const localTestBtn    = document.getElementById('ai-music-local-test');
+    const localSaveBtn    = document.getElementById('ai-music-local-save');
+    const audioFeedback   = document.getElementById('ai-music-status-feedback');
+
+    const showAudioFeedback = (msg, type = 'info') => {
+      if (!audioFeedback) return;
+      audioFeedback.textContent = msg;
+      audioFeedback.className = `ai-status-feedback ${type}`;
+      audioFeedback.classList.remove('hidden');
+    };
+
+    const updateAudioKeyUI = () => {
+      const provider = this.musicAI.getProvider();
       const has = this.musicAI.hasApiKey();
-      if (keyStatus) keyStatus.textContent = has ? '✓ Connected' : 'No Key';
+
+      if (keyStatus) {
+        if (provider === 'local') keyStatus.textContent = 'Local Server';
+        else keyStatus.textContent = has ? 'HF Connected' : 'No Key';
+      }
+
       if (keyToggle) {
         keyToggle.classList.toggle('has-key', has);
       }
       if (genBtn) genBtn.disabled = !has;
+
+      audioTabs.forEach(t => t.classList.toggle('active', t.dataset.audioProvider === provider));
+      audioContents.forEach(c => c.classList.toggle('active', c.id === `ai-audio-tab-${provider}`));
+
+      if (localUrlInput) localUrlInput.value = this.musicAI.localAudio.baseUrl;
+      if (keyInput) keyInput.value = this.musicAI.getApiKey();
     };
-    updateKeyUI();
-    if (this.musicAI.hasApiKey() && keyInput) {
-      keyInput.value = this.musicAI.getApiKey();
-    }
+
+    updateAudioKeyUI();
+
+    audioTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const p = tab.dataset.audioProvider;
+        this.musicAI.setProvider(p);
+        updateAudioKeyUI();
+        if (audioFeedback) audioFeedback.classList.add('hidden');
+      });
+    });
+
+    localTestBtn?.addEventListener('click', async () => {
+      showAudioFeedback('Testing connection to local music server...', 'loading');
+      const url = localUrlInput?.value.trim() || 'http://localhost:8000';
+      this.musicAI.localAudio.setUrl(url);
+      const res = await this.musicAI.localAudio.testConnection();
+      showAudioFeedback(res.message, res.ok ? 'success' : 'error');
+    });
+
+    localSaveBtn?.addEventListener('click', () => {
+      const url = localUrlInput?.value.trim() || 'http://localhost:8000';
+      this.musicAI.localAudio.setUrl(url);
+      this.musicAI.setProvider('local');
+      updateAudioKeyUI();
+      keyPanel?.classList.add('hidden');
+      showToast('💻 Local music server selected');
+    });
 
     keyToggle?.addEventListener('click', () => {
       keyPanel?.classList.toggle('hidden');
     });
+
     keySave?.addEventListener('click', () => {
       const key = keyInput?.value.trim();
       if (key) {
         this.musicAI.setApiKey(key);
-        updateKeyUI();
+        this.musicAI.setProvider('hf');
+        updateAudioKeyUI();
         keyPanel?.classList.add('hidden');
         showToast('🔑 Hugging Face API key saved!');
       }
@@ -1218,28 +1297,201 @@ class FLStudioApp {
     const inputEl     = document.getElementById('ai-producer-input');
     const sendBtn     = document.getElementById('ai-producer-send');
 
-    // ── API Key ──
-    const updateKeyUI = () => {
-      const has = this.aiProducer.hasApiKey();
-      if (keyStatus) keyStatus.textContent = has ? '✓ Connected' : 'No Key';
-      if (keyToggle) keyToggle.classList.toggle('has-key', has);
-      if (sendBtn) sendBtn.disabled = !has;
-    };
-    updateKeyUI();
-    if (this.aiProducer.hasApiKey() && keyInput) {
-      keyInput.value = this.aiProducer.getApiKey();
-    }
+    // ── Multi-Provider Settings ──
+    const providerBadge    = document.getElementById('ai-producer-provider-badge');
+    const feedbackBanner   = document.getElementById('ai-producer-status-feedback');
+    const providerTabs     = keyPanel?.querySelectorAll('.ai-provider-tab') || [];
+    const providerContents = keyPanel?.querySelectorAll('.ai-provider-content') || [];
 
-    keyToggle?.addEventListener('click', () => keyPanel?.classList.toggle('hidden'));
+    // Ollama controls
+    const ollamaUrlInput   = document.getElementById('ai-ollama-url');
+    const ollamaModelInput = document.getElementById('ai-ollama-model');
+    const ollamaModelSelect= document.getElementById('ai-ollama-model-select');
+    const ollamaScanBtn    = document.getElementById('ai-ollama-scan-btn');
+    const ollamaTestBtn    = document.getElementById('ai-ollama-test-btn');
+    const ollamaSaveBtn    = document.getElementById('ai-ollama-save-btn');
+    const ollamaChips      = keyPanel?.querySelectorAll('#ai-tab-ollama .ai-chip-btn') || [];
+
+    // Local OpenAI controls
+    const localOAUrlInput   = document.getElementById('ai-local-openai-url');
+    const localOAModelInput = document.getElementById('ai-local-openai-model');
+    const localOATestBtn    = document.getElementById('ai-local-openai-test-btn');
+    const localOASaveBtn    = document.getElementById('ai-local-openai-save-btn');
+
+    // Gemini controls
+    const geminiTestBtn    = document.getElementById('ai-gemini-test-btn');
+
+    const showFeedback = (msg, type = 'info') => {
+      if (!feedbackBanner) return;
+      feedbackBanner.textContent = msg;
+      feedbackBanner.className = `ai-status-feedback ${type}`;
+      feedbackBanner.classList.remove('hidden');
+    };
+
+    const updateKeyUI = () => {
+      const provider = this.aiProducer.getProvider();
+      const has = this.aiProducer.hasActiveConnection();
+
+      if (providerBadge) {
+        if (provider === 'ollama') providerBadge.textContent = 'Ollama';
+        else if (provider === 'local-openai') providerBadge.textContent = 'Local LM';
+        else providerBadge.textContent = 'Gemini';
+      }
+
+      if (keyStatus) {
+        keyStatus.textContent = this.aiProducer.getActiveDisplayName();
+      }
+
+      if (keyToggle) {
+        keyToggle.classList.toggle('has-key', has);
+      }
+      if (sendBtn) {
+        sendBtn.disabled = !has;
+      }
+
+      // Sync active tab
+      providerTabs.forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.provider === provider);
+      });
+      providerContents.forEach(content => {
+        content.classList.toggle('active', content.id === `ai-tab-${provider}`);
+      });
+
+      // Populate current values
+      if (ollamaUrlInput) ollamaUrlInput.value = this.aiProducer.ollama.baseUrl;
+      if (ollamaModelInput) ollamaModelInput.value = this.aiProducer.ollama.model;
+      if (localOAUrlInput) localOAUrlInput.value = this.aiProducer.localOpenAI.baseUrl;
+      if (localOAModelInput) localOAModelInput.value = this.aiProducer.localOpenAI.model;
+      if (keyInput) keyInput.value = this.aiProducer.getApiKey();
+
+      // Highlight active model chip
+      ollamaChips.forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.model === this.aiProducer.ollama.model);
+      });
+    };
+
+    updateKeyUI();
+
+    // Tab switcher
+    providerTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const p = tab.dataset.provider;
+        this.aiProducer.setProvider(p);
+        updateKeyUI();
+        if (feedbackBanner) feedbackBanner.classList.add('hidden');
+      });
+    });
+
+    // Model quick chips
+    ollamaChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const m = chip.dataset.model;
+        if (ollamaModelInput) ollamaModelInput.value = m;
+        this.aiProducer.ollama.setConfig(undefined, m);
+        updateKeyUI();
+      });
+    });
+
+    // Ollama scan models
+    ollamaScanBtn?.addEventListener('click', async () => {
+      showFeedback('Scanning local Ollama models...', 'loading');
+      try {
+        const url = ollamaUrlInput?.value.trim() || 'http://localhost:11434';
+        this.aiProducer.ollama.setConfig(url, undefined);
+        const models = await this.aiProducer.ollama.fetchModels();
+        if (models.length === 0) {
+          showFeedback('Ollama connected, but no models found. Run "ollama pull chatmusician" in your terminal.', 'info');
+        } else {
+          if (ollamaModelSelect) {
+            ollamaModelSelect.innerHTML = '<option value="">Select installed model...</option>' +
+              models.map(m => `<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`).join('');
+            ollamaModelSelect.classList.remove('hidden');
+          }
+          showFeedback(`✓ Found ${models.length} installed model(s): ${models.slice(0, 4).join(', ')}${models.length > 4 ? '...' : ''}`, 'success');
+        }
+      } catch (err) {
+        showFeedback(`✗ ${err.message}`, 'error');
+      }
+    });
+
+    // Ollama select model
+    ollamaModelSelect?.addEventListener('change', () => {
+      const val = ollamaModelSelect.value;
+      if (val && ollamaModelInput) {
+        ollamaModelInput.value = val;
+        this.aiProducer.ollama.setConfig(undefined, val);
+        updateKeyUI();
+      }
+    });
+
+    // Ollama test ping
+    ollamaTestBtn?.addEventListener('click', async () => {
+      showFeedback('Pinging Ollama server...', 'loading');
+      const url = ollamaUrlInput?.value.trim() || 'http://localhost:11434';
+      const model = ollamaModelInput?.value.trim() || 'chatmusician';
+      this.aiProducer.ollama.setConfig(url, model);
+      const res = await this.aiProducer.ollama.testConnection();
+      showFeedback(res.message, res.ok ? 'success' : 'error');
+    });
+
+    // Ollama save
+    ollamaSaveBtn?.addEventListener('click', async () => {
+      const url = ollamaUrlInput?.value.trim() || 'http://localhost:11434';
+      const model = ollamaModelInput?.value.trim() || 'chatmusician';
+      this.aiProducer.ollama.setConfig(url, model);
+      this.aiProducer.setProvider('ollama');
+      updateKeyUI();
+      showToast(`🦙 Ollama active: ${model}`);
+      keyPanel?.classList.add('hidden');
+    });
+
+    // Local OpenAI test ping
+    localOATestBtn?.addEventListener('click', async () => {
+      showFeedback('Pinging Local OpenAI server...', 'loading');
+      const url = localOAUrlInput?.value.trim() || 'http://localhost:1234/v1';
+      const model = localOAModelInput?.value.trim() || 'local-model';
+      this.aiProducer.localOpenAI.setConfig(url, model);
+      const res = await this.aiProducer.localOpenAI.testConnection();
+      showFeedback(res.message, res.ok ? 'success' : 'error');
+    });
+
+    // Local OpenAI save
+    localOASaveBtn?.addEventListener('click', () => {
+      const url = localOAUrlInput?.value.trim() || 'http://localhost:1234/v1';
+      const model = localOAModelInput?.value.trim() || 'local-model';
+      this.aiProducer.localOpenAI.setConfig(url, model);
+      this.aiProducer.setProvider('local-openai');
+      updateKeyUI();
+      showToast(`🖥️ Local LLM active: ${model}`);
+      keyPanel?.classList.add('hidden');
+    });
+
+    // Gemini test ping
+    geminiTestBtn?.addEventListener('click', async () => {
+      const key = keyInput?.value.trim();
+      if (!key) {
+        showFeedback('Please enter a Gemini API key first.', 'error');
+        return;
+      }
+      showFeedback('Testing Gemini API key...', 'loading');
+      this.aiProducer.setApiKey(key);
+      const res = await this.aiProducer.gemini.testConnection();
+      showFeedback(res.message, res.ok ? 'success' : 'error');
+    });
+
+    // Gemini save
     keySave?.addEventListener('click', () => {
       const key = keyInput?.value.trim();
       if (key) {
         this.aiProducer.setApiKey(key);
+        this.aiProducer.setProvider('gemini');
         updateKeyUI();
         keyPanel?.classList.add('hidden');
         showToast('🔑 Gemini API key saved!');
       }
     });
+
+    keyToggle?.addEventListener('click', () => keyPanel?.classList.toggle('hidden'));
 
     // ── Undo ──
     const updateUndoBtn = () => {
@@ -1385,8 +1637,9 @@ class FLStudioApp {
     const sendMessage = async () => {
       const text = inputEl?.value.trim();
       if (!text || this.aiProducer.isProcessing) return;
-      if (!this.aiProducer.hasApiKey()) {
-        showToast('Please set your Gemini API key first 🔑');
+      if (!this.aiProducer.hasActiveConnection()) {
+        const providerName = this.aiProducer.getProvider() === 'gemini' ? 'Gemini API key' : 'model settings';
+        showToast(`Please configure your ${providerName} first ⚙️`);
         keyPanel?.classList.remove('hidden');
         return;
       }
@@ -1431,8 +1684,9 @@ class FLStudioApp {
     // ── Quick action executor ──
     const executeQuickAction = async (actionId, card) => {
       if (this.aiProducer.isProcessing) return;
-      if (!this.aiProducer.hasApiKey()) {
-        showToast('Please set your Gemini API key first 🔑');
+      if (!this.aiProducer.hasActiveConnection()) {
+        const providerName = this.aiProducer.getProvider() === 'gemini' ? 'Gemini API key' : 'model settings';
+        showToast(`Please configure your ${providerName} first ⚙️`);
         keyPanel?.classList.remove('hidden');
         return;
       }
@@ -1493,9 +1747,715 @@ class FLStudioApp {
     });
   }
 
+  // ── Vocal & Voice Recording Engine ────────────────────────────────
+  async _ensureRecordingEngines() {
+    if (this.recorder) return this.recorder;
+    if (!this.audioEngine.initialized) this.audioEngine.init();
+    if (!this.autoTune) {
+      this.autoTune = new AutoTuneEngine(this.audioEngine.ctx);
+    }
+    this.recorder = new RecorderEngine(this.audioEngine, this.autoTune);
+
+    this.recorder.onStateChange = state => this._updateRecState(state);
+    this.recorder.onClipAdded = clip => {
+      this._renderClipList();
+      this._addVocalClipToProject(clip);
+    };
+    this.recorder.onPitchUpdate = () => this._updatePitchUI();
+    return this.recorder;
+  }
+
+  async _toggleVoiceRecording() {
+    await this._ensureRecordingEngines();
+    if (!this.recorder.isRecording) {
+      await this._startVoiceRecording();
+    } else {
+      this._stopVoiceRecording();
+    }
+  }
+
+  async _startVoiceRecording() {
+    await this._ensureRecordingEngines();
+    if (!this.recorder.isArmed) {
+      showToast('🎙️ Requesting microphone access...');
+      const ok = await this.recorder.requestMic();
+      if (!ok) {
+        showToast('❌ Microphone permission denied');
+        return;
+      }
+      document.getElementById('btn-arm')?.classList.add('armed');
+      document.getElementById('btn-rec')?.removeAttribute('disabled');
+      this._startMicLevelMeter();
+    }
+
+    if (this.recorder.isRecording) return;
+    await this.recorder.startRecording();
+
+    this.isRecording = true;
+    document.getElementById('btn-record')?.classList.add('active');
+    document.getElementById('btn-rec')?.classList.add('recording');
+    document.getElementById('btn-rec-stop')?.classList.add('visible');
+    document.querySelector('.right-tab.record-tab')?.classList.add('is-recording');
+
+    // Show floating top HUD
+    const hud = document.getElementById('top-rec-hud');
+    const hudTimer = document.getElementById('rec-hud-timer');
+    const recTimeTab = document.getElementById('rec-time-display');
+    hud?.classList.remove('hidden');
+
+    const startMs = Date.now();
+    clearInterval(this._recTimerInterval);
+    this._recTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startMs) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      const str = `${m}:${String(s).padStart(2, '0')}`;
+      if (hudTimer) hudTimer.textContent = str;
+      if (recTimeTab) { recTimeTab.textContent = str; recTimeTab.classList.add('recording'); }
+    }, 250);
+
+    showToast('🔴 Recording voice... Click Record or Stop when done!');
+  }
+
+  _stopVoiceRecording() {
+    if (!this.recorder || !this.recorder.isRecording) return;
+    this.recorder.stopRecording();
+    this.isRecording = false;
+
+    document.getElementById('btn-record')?.classList.remove('active');
+    document.getElementById('btn-rec')?.classList.remove('recording');
+    document.getElementById('btn-rec-stop')?.classList.remove('visible');
+    document.querySelector('.right-tab.record-tab')?.classList.remove('is-recording');
+    document.getElementById('top-rec-hud')?.classList.add('hidden');
+
+    clearInterval(this._recTimerInterval);
+    const el = document.getElementById('rec-time-display');
+    if (el) { el.textContent = '0:00'; el.classList.remove('recording'); }
+  }
+
+  _addVocalClipToProject(clip) {
+    if (!clip) return;
+    const buf = clip.processedBuffer || clip.rawBuffer;
+    if (!buf) return;
+
+    // Check if channel already exists
+    const existing = this.sequencer.channels.find(ch => ch.clipId === clip.id);
+    if (existing) {
+      existing.audioBuffer = buf;
+      this._buildChannelRack();
+      return;
+    }
+
+    const steps = Array(16).fill(false);
+    steps[0] = true; // Play on step 1
+
+    const newChannel = {
+      name: `🎤 ${clip.name}`,
+      color: '#00d4aa',
+      type: 'audio',
+      audioBuffer: buf,
+      clipId: clip.id,
+      duration: clip.duration,
+      steps: steps,
+      velocity: Array(16).fill(0.95),
+      volume: 1,
+      pan: 0,
+      muted: false,
+      solo: false,
+      notes: []
+    };
+
+    this.sequencer.channels.push(newChannel);
+    this._buildChannelRack();
+
+    if (this.playlist) {
+      this.playlist.syncWithChannels();
+    }
+
+    showToast(`🎙️ Recorded voice ("${clip.name}") added to Channel Rack & Playlist!`, 4000);
+  }
+
+  // ── Project Name Binding ──────────────────────────────────────────
+  _bindProjectTitle() {
+    const titlebarInput = document.getElementById('project-title-input');
+    const tbInput = document.getElementById('tb-project-title-input');
+    const saveTitleInput = document.getElementById('save-project-title');
+
+    const updateTitle = (val) => {
+      const cleanVal = val.trim() || 'Untitled Project';
+      this.currentProjectTitle = cleanVal;
+      document.title = `${cleanVal} — BeYou Studio`;
+      if (titlebarInput && titlebarInput.value !== cleanVal) titlebarInput.value = cleanVal;
+      if (tbInput && tbInput.value !== cleanVal) tbInput.value = cleanVal;
+      if (saveTitleInput) saveTitleInput.value = cleanVal;
+    };
+
+    titlebarInput?.addEventListener('input', (e) => updateTitle(e.target.value));
+    tbInput?.addEventListener('input', (e) => updateTitle(e.target.value));
+
+    titlebarInput?.addEventListener('change', (e) => {
+      updateTitle(e.target.value);
+      showToast(`📝 Project renamed: "${this.currentProjectTitle}"`);
+    });
+    tbInput?.addEventListener('change', (e) => {
+      updateTitle(e.target.value);
+      showToast(`📝 Project renamed: "${this.currentProjectTitle}"`);
+    });
+  }
+
+  // ── Project State Serialization ──────────────────────────────────
+  serializeState() {
+    return {
+      title: this.currentProjectTitle || 'Untitled Project',
+      bpm: this.sequencer.bpm,
+      patternName: this.sequencer.patternName,
+      steps: this.sequencer.steps,
+      channels: this.sequencer.channels.map(ch => ({
+        name: ch.name,
+        color: ch.color,
+        type: ch.type,
+        steps: [...ch.steps],
+        velocity: [...ch.velocity],
+        volume: ch.volume,
+        pan: ch.pan,
+        muted: !!ch.muted,
+        solo: !!ch.solo,
+        notes: ch.notes ? JSON.parse(JSON.stringify(ch.notes)) : [],
+        filterFreq: ch.filterFreq || 2000,
+        filterRes: ch.filterRes || 1
+      })),
+      playlist: this.playlist ? {
+        tracks: this.playlist.tracks.map(t => ({
+          name: t.name,
+          color: t.color,
+          blocks: t.blocks ? JSON.parse(JSON.stringify(t.blocks)) : []
+        }))
+      } : null,
+      savedAt: new Date().toISOString()
+    };
+  }
+
+  loadState(state) {
+    if (!state) return;
+    if (typeof state === 'string') {
+      try {
+        state = JSON.parse(state);
+      } catch (e) {
+        console.error('Failed to parse project JSON:', e);
+        showToast('❌ Invalid project state file');
+        return;
+      }
+    }
+
+    if (state.title) {
+      this.currentProjectTitle = state.title;
+      document.title = `${state.title} — BeYou Studio`;
+      const titleInput = document.getElementById('project-title-input');
+      const tbInput = document.getElementById('tb-project-title-input');
+      const saveTitleInput = document.getElementById('save-project-title');
+      if (titleInput) titleInput.value = state.title;
+      if (tbInput) tbInput.value = state.title;
+      if (saveTitleInput) saveTitleInput.value = state.title;
+    }
+
+    if (state.bpm) {
+      this.sequencer.bpm = state.bpm;
+      const bpmEl = document.getElementById('bpm-display');
+      if (bpmEl) bpmEl.value = state.bpm;
+    }
+
+    if (state.channels && Array.isArray(state.channels)) {
+      this.sequencer.channels = state.channels.map(ch => ({
+        name: ch.name,
+        color: ch.color,
+        type: ch.type || 'drum',
+        steps: ch.steps || Array(16).fill(false),
+        velocity: ch.velocity || Array(16).fill(0.8),
+        volume: ch.volume !== undefined ? ch.volume : 1,
+        pan: ch.pan !== undefined ? ch.pan : 0,
+        muted: !!ch.muted,
+        solo: !!ch.solo,
+        notes: ch.notes || [],
+        filterFreq: ch.filterFreq || 2000,
+        filterRes: ch.filterRes || 1
+      }));
+      this._buildChannelRack();
+      if (this.pianoRoll) {
+        this.pianoRoll.render();
+      }
+    }
+
+    if (state.playlist && state.playlist.tracks && this.playlist) {
+      this.playlist.tracks = state.playlist.tracks;
+      this.playlist.render();
+    }
+
+    if (this.mixer) {
+      this.mixer.render();
+    }
+
+    showToast(`✨ Loaded project: "${this.currentProjectTitle || 'Project'}"`, 3000);
+  }
+
+  // ── Backend API & Admin Integration ──────────────────────────────
+  _updateUserUI(user) {
+    const nameEl = document.getElementById('user-name-display');
+    const roleEl = document.getElementById('user-role-tag');
+    const adminBtn = document.getElementById('btn-admin-dash');
+
+    if (user) {
+      if (nameEl) nameEl.textContent = user.full_name || user.username;
+      if (roleEl) {
+        roleEl.textContent = user.role.toUpperCase();
+        roleEl.className = `role-badge ${user.role === 'admin' ? 'admin' : 'user'}`;
+      }
+      if (adminBtn) {
+        if (user.role === 'admin') {
+          adminBtn.classList.remove('hidden');
+        } else {
+          adminBtn.classList.add('hidden');
+        }
+      }
+    } else {
+      if (nameEl) nameEl.textContent = 'Guest';
+      if (roleEl) {
+        roleEl.textContent = 'OFFLINE';
+        roleEl.className = 'role-badge user';
+      }
+      if (adminBtn) adminBtn.classList.add('hidden');
+    }
+  }
+
+  _initBackendIntegration() {
+    if (!window.backendAPI) return;
+
+    this.currentProjectId = null;
+    this.currentProjectTitle = 'Untitled Project';
+
+    // Auto-login session init
+    backendAPI.initSession().then(user => {
+      this._updateUserUI(user);
+      if (user) {
+        showToast(`👑 Welcome back, ${user.full_name}! (Role: ${user.role})`, 3500);
+      }
+    });
+
+    // Wire Modal Close Handlers
+    document.querySelectorAll('.fl-modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.add('hidden');
+      });
+    });
+    document.querySelectorAll('[data-close]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const modalId = btn.dataset.close;
+        const modal = document.getElementById(modalId);
+        if (modal) modal.classList.add('hidden');
+      });
+    });
+
+    // ── Save Project Modal ──
+    const saveBtn = document.getElementById('btn-cloud-save');
+    const saveModal = document.getElementById('modal-save-project');
+    const saveTitleInput = document.getElementById('save-project-title');
+    const saveConfirmBtn = document.getElementById('btn-save-project-confirm');
+    const savePreviewBpm = document.getElementById('save-preview-bpm');
+    const savePreviewChannels = document.getElementById('save-preview-channels');
+
+    saveBtn?.addEventListener('click', () => {
+      if (!backendAPI.currentUser) {
+        document.getElementById('modal-auth')?.classList.remove('hidden');
+        showToast('⚠️ Please sign in to save projects to the database.');
+        return;
+      }
+      if (saveTitleInput) saveTitleInput.value = this.currentProjectTitle || 'My Track';
+      if (savePreviewBpm) savePreviewBpm.textContent = this.sequencer.bpm;
+      if (savePreviewChannels) savePreviewChannels.textContent = this.sequencer.channels.length;
+      saveModal?.classList.remove('hidden');
+      saveTitleInput?.focus();
+    });
+
+    saveConfirmBtn?.addEventListener('click', async () => {
+      const title = saveTitleInput?.value.trim() || 'Untitled Project';
+      saveConfirmBtn.disabled = true;
+      saveConfirmBtn.textContent = 'Saving...';
+      try {
+        const stateObj = this.serializeState();
+        stateObj.title = title;
+        const res = await backendAPI.saveProject(title, stateObj, this.sequencer.bpm, this.sequencer.channels.length);
+        this.currentProjectId = res.id;
+        this.currentProjectTitle = title;
+        document.title = `${title} — BeYou Studio`;
+        const titleInput = document.getElementById('project-title-input');
+        const tbInput = document.getElementById('tb-project-title-input');
+        if (titleInput) titleInput.value = title;
+        if (tbInput) tbInput.value = title;
+        saveModal?.classList.add('hidden');
+        showToast(`💾 Saved project "${title}" to database!`, 3000);
+      } catch (err) {
+        showToast(`❌ Save error: ${err.message}`, 4000);
+      } finally {
+        saveConfirmBtn.disabled = false;
+        saveConfirmBtn.textContent = 'Save to Cloud';
+      }
+    });
+
+    // ── Open Cloud Projects Modal ──
+    const openBtn = document.getElementById('btn-cloud-open');
+    const openModal = document.getElementById('modal-cloud-projects');
+    const projContainer = document.getElementById('cloud-proj-container');
+    const searchInput = document.getElementById('cloud-proj-search');
+    const modalNewSaveBtn = document.getElementById('btn-modal-new-save');
+
+    modalNewSaveBtn?.addEventListener('click', () => {
+      openModal?.classList.add('hidden');
+      saveBtn?.click();
+    });
+
+    const loadProjectsList = async () => {
+      if (!projContainer) return;
+      projContainer.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px;">Loading projects...</div>';
+      try {
+        const projects = await backendAPI.listProjects();
+        if (!projects || projects.length === 0) {
+          projContainer.innerHTML = `
+            <div style="text-align:center;padding:36px;color:var(--text-muted);font-size:12px;">
+              No saved projects yet in database.<br>
+              <button onclick="document.getElementById('btn-cloud-save').click(); document.getElementById('modal-cloud-projects').classList.add('hidden');" class="fl-btn-primary" style="margin-top:10px;font-size:11px;">💾 Save Current DAW State</button>
+            </div>`;
+          return;
+        }
+
+        const renderItems = (items) => {
+          projContainer.innerHTML = items.map(p => `
+            <div class="cloud-proj-card" data-proj-id="${p.id}">
+              <div class="cloud-proj-info">
+                <div class="cloud-proj-title">${p.title}</div>
+                <div class="cloud-proj-meta">
+                  <span>BPM: ${p.bpm}</span>
+                  <span>Channels: ${p.channel_count}</span>
+                  <span>Updated: ${new Date(p.updated_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="fl-btn-primary btn-load-proj" data-proj-id="${p.id}" style="padding:4px 12px;font-size:11px;">Load</button>
+                <button class="admin-act-btn danger btn-delete-proj" data-proj-id="${p.id}">🗑</button>
+              </div>
+            </div>
+          `).join('');
+
+          projContainer.querySelectorAll('.btn-load-proj').forEach(b => {
+            b.addEventListener('click', async () => {
+              const pid = b.dataset.projId;
+              try {
+                const data = await backendAPI.getProject(pid);
+                this.loadState(data.state_json);
+                this.currentProjectId = data.id;
+                this.currentProjectTitle = data.title;
+                openModal?.classList.add('hidden');
+              } catch (e) {
+                showToast(`❌ Failed to load project: ${e.message}`);
+              }
+            });
+          });
+
+          projContainer.querySelectorAll('.btn-delete-proj').forEach(b => {
+            b.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              const pid = b.dataset.projId;
+              if (confirm('Delete this project from database?')) {
+                try {
+                  await backendAPI.deleteProject(pid);
+                  showToast('🗑 Project deleted');
+                  loadProjectsList();
+                } catch (e) {
+                  showToast(`❌ Delete failed: ${e.message}`);
+                }
+              }
+            });
+          });
+        };
+
+        renderItems(projects);
+
+        searchInput?.addEventListener('input', () => {
+          const q = searchInput.value.toLowerCase();
+          const filtered = projects.filter(p => p.title.toLowerCase().includes(q));
+          renderItems(filtered);
+        });
+
+      } catch (err) {
+        projContainer.innerHTML = `<div style="text-align:center;padding:20px;color:#ef4444;font-size:12px;">Failed to load: ${err.message}</div>`;
+      }
+    };
+
+    openBtn?.addEventListener('click', () => {
+      if (!backendAPI.currentUser) {
+        document.getElementById('modal-auth')?.classList.remove('hidden');
+        showToast('⚠️ Please sign in to access your saved projects.');
+        return;
+      }
+      openModal?.classList.remove('hidden');
+      loadProjectsList();
+    });
+
+    // ── Super Admin Dashboard ──
+    const adminBtn = document.getElementById('btn-admin-dash');
+    const adminModal = document.getElementById('modal-admin-dashboard');
+
+    const loadAdminData = async () => {
+      try {
+        const stats = await backendAPI.getAdminStats();
+        document.getElementById('adm-stat-users').textContent = stats.total_users;
+        document.getElementById('adm-stat-projects').textContent = stats.total_projects;
+        document.getElementById('adm-stat-sessions').textContent = stats.active_sessions;
+        document.getElementById('adm-stat-db').textContent = stats.db_size_formatted;
+        document.getElementById('adm-stat-engine').textContent = stats.audio_engine;
+        document.getElementById('adm-stat-uptime').textContent = `${Math.floor(stats.uptime_seconds / 60)}m ${stats.uptime_seconds % 60}s`;
+
+        // Load users table
+        const users = await backendAPI.getAdminUsers();
+        const usersTbody = document.getElementById('admin-users-tbody');
+        if (usersTbody) {
+          usersTbody.innerHTML = users.map(u => `
+            <tr>
+              <td>${u.id}</td>
+              <td style="font-weight:600;color:#fff;">${u.username}</td>
+              <td>${u.full_name || '—'}</td>
+              <td><span class="role-badge ${u.role}">${u.role.toUpperCase()}</span></td>
+              <td>${u.project_count || 0}</td>
+              <td>${u.last_login ? new Date(u.last_login).toLocaleTimeString() : 'Never'}</td>
+              <td>
+                ${u.username === 'rahul' ? '<span style="font-size:10px;color:var(--accent);font-weight:700;">Super Admin</span>' : `
+                  <button class="admin-act-btn btn-toggle-role" data-user-id="${u.id}" data-role="${u.role === 'admin' ? 'user' : 'admin'}">
+                    ${u.role === 'admin' ? 'Demote' : 'Make Admin'}
+                  </button>
+                  <button class="admin-act-btn danger btn-adm-del-user" data-user-id="${u.id}">Delete</button>
+                `}
+              </td>
+            </tr>
+          `).join('');
+
+          usersTbody.querySelectorAll('.btn-toggle-role').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const uid = btn.dataset.userId;
+              const newRole = btn.dataset.role;
+              try {
+                await backendAPI.updateUserRole(uid, newRole);
+                showToast(`Role updated to ${newRole}`);
+                loadAdminData();
+              } catch (e) {
+                showToast(`Error: ${e.message}`);
+              }
+            });
+          });
+
+          usersTbody.querySelectorAll('.btn-adm-del-user').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const uid = btn.dataset.userId;
+              if (confirm('Permanently delete this user and their projects?')) {
+                try {
+                  await backendAPI.deleteUser(uid);
+                  showToast('User deleted');
+                  loadAdminData();
+                } catch (e) {
+                  showToast(`Error: ${e.message}`);
+                }
+              }
+            });
+          });
+        }
+
+        // Load all projects table
+        const allProjects = await backendAPI.listProjects(true);
+        const projTbody = document.getElementById('admin-projects-tbody');
+        if (projTbody) {
+          projTbody.innerHTML = allProjects.map(p => `
+            <tr>
+              <td style="font-family:var(--font-mono);font-size:10px;">${p.id}</td>
+              <td style="font-weight:600;color:#fff;">${p.title}</td>
+              <td>${p.full_name || p.username || 'User #' + p.user_id}</td>
+              <td>${p.bpm}</td>
+              <td>${new Date(p.updated_at).toLocaleDateString()}</td>
+              <td>
+                <button class="admin-act-btn danger btn-adm-del-proj" data-proj-id="${p.id}">Delete</button>
+              </td>
+            </tr>
+          `).join('');
+
+          projTbody.querySelectorAll('.btn-adm-del-proj').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const pid = btn.dataset.projId;
+              if (confirm('Delete this project as Admin?')) {
+                try {
+                  await backendAPI.deleteProject(pid);
+                  showToast('Project deleted by admin');
+                  loadAdminData();
+                } catch (e) {
+                  showToast(`Error: ${e.message}`);
+                }
+              }
+            });
+          });
+        }
+
+        // Load audit logs
+        const logs = await backendAPI.getAdminLogs();
+        const logsTbody = document.getElementById('admin-logs-tbody');
+        if (logsTbody) {
+          logsTbody.innerHTML = logs.map(l => `
+            <tr>
+              <td style="font-family:var(--font-mono);font-size:10px;">${new Date(l.timestamp).toLocaleTimeString()}</td>
+              <td style="color:#a855f7;font-weight:600;">${l.username || 'System'}</td>
+              <td><span style="font-family:var(--font-mono);font-size:10px;color:var(--accent);">${l.action}</span></td>
+              <td style="color:var(--text-muted);font-size:10px;">${l.details || '—'}</td>
+            </tr>
+          `).join('');
+        }
+
+      } catch (err) {
+        showToast(`Admin error: ${err.message}`);
+      }
+    };
+
+    adminBtn?.addEventListener('click', () => {
+      adminModal?.classList.remove('hidden');
+      loadAdminData();
+    });
+
+    // Admin Tab Switching
+    document.querySelectorAll('[data-admin-tab]').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        const tabKey = tabBtn.dataset.adminTab;
+        document.querySelectorAll('[data-admin-tab]').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.admin-tab-pane').forEach(p => p.classList.remove('active'));
+        tabBtn.classList.add('active');
+        document.getElementById(`admin-tab-${tabKey}`)?.classList.add('active');
+      });
+    });
+
+    // Admin Add User Form
+    const showAddUserBtn = document.getElementById('btn-admin-show-add-user');
+    const addUserForm = document.getElementById('admin-add-user-form');
+    const cancelAddUserBtn = document.getElementById('adm-cancel-add-user');
+    const submitAddUserBtn = document.getElementById('adm-submit-add-user');
+
+    showAddUserBtn?.addEventListener('click', () => {
+      addUserForm?.classList.toggle('hidden');
+    });
+    cancelAddUserBtn?.addEventListener('click', () => {
+      addUserForm?.classList.add('hidden');
+    });
+    submitAddUserBtn?.addEventListener('click', async () => {
+      const username = document.getElementById('adm-new-username').value.trim();
+      const email = document.getElementById('adm-new-email').value.trim();
+      const password = document.getElementById('adm-new-password').value.trim();
+      const fullName = document.getElementById('adm-new-fullname').value.trim();
+
+      if (!username || !email || !password) {
+        showToast('❌ Please fill in required fields');
+        return;
+      }
+
+      try {
+        await backendAPI.createAdminUser({
+          username,
+          email,
+          password,
+          full_name: fullName,
+          role: 'user'
+        });
+        showToast(`✓ Created user: ${username}`);
+        addUserForm?.classList.add('hidden');
+        loadAdminData();
+      } catch (e) {
+        showToast(`Error: ${e.message}`);
+      }
+    });
+
+    // ── Auth Modal & Account Switching ──
+    const userBadge = document.getElementById('user-badge');
+    const authModal = document.getElementById('modal-auth');
+    const authTabLogin = document.getElementById('auth-tab-btn-login');
+    const authTabReg = document.getElementById('auth-tab-btn-register');
+    const authFormLogin = document.getElementById('auth-form-login');
+    const authFormReg = document.getElementById('auth-form-register');
+    const quickAdminBtn = document.getElementById('btn-quick-admin-login');
+    const loginSubmitBtn = document.getElementById('btn-auth-login-submit');
+    const regSubmitBtn = document.getElementById('btn-auth-register-submit');
+
+    userBadge?.addEventListener('click', () => {
+      authModal?.classList.remove('hidden');
+    });
+
+    authTabLogin?.addEventListener('click', () => {
+      authTabLogin.classList.add('active');
+      authTabReg.classList.remove('active');
+      authFormLogin.classList.remove('hidden');
+      authFormReg.classList.add('hidden');
+    });
+
+    authTabReg?.addEventListener('click', () => {
+      authTabReg.classList.add('active');
+      authTabLogin.classList.remove('active');
+      authFormReg.classList.remove('hidden');
+      authFormLogin.classList.add('hidden');
+    });
+
+    quickAdminBtn?.addEventListener('click', async () => {
+      try {
+        const user = await backendAPI.login('rahul', 'password123');
+        this._updateUserUI(user);
+        authModal?.classList.add('hidden');
+        showToast(`👑 Signed in as Super Admin: ${backendAPI.escapeHtml(user.full_name)}!`, 3500);
+      } catch (e) {
+        showToast(`Login failed: ${backendAPI.escapeHtml(e.message)}`);
+      }
+    });
+
+    loginSubmitBtn?.addEventListener('click', async () => {
+      const user = document.getElementById('auth-login-user').value.trim();
+      const pass = document.getElementById('auth-login-pass').value.trim();
+      const hp = document.getElementById('auth-login-hp')?.value || null;
+      if (!user || !pass) {
+        showToast('Please enter username and password');
+        return;
+      }
+      try {
+        const loggedUser = await backendAPI.login(user, pass, hp);
+        this._updateUserUI(loggedUser);
+        authModal?.classList.add('hidden');
+        showToast(`Welcome back, ${backendAPI.escapeHtml(loggedUser.full_name || loggedUser.username)}!`);
+      } catch (e) {
+        showToast(`Login failed: ${backendAPI.escapeHtml(e.message)}`);
+      }
+    });
+
+    regSubmitBtn?.addEventListener('click', async () => {
+      const u = document.getElementById('auth-reg-user').value.trim();
+      const fn = document.getElementById('auth-reg-fullname').value.trim();
+      const em = document.getElementById('auth-reg-email').value.trim();
+      const pw = document.getElementById('auth-reg-pass').value.trim();
+      const hp = document.getElementById('auth-reg-hp')?.value || null;
+      if (!u || !em || !pw) {
+        showToast('Please fill in required registration fields');
+        return;
+      }
+      try {
+        const newUser = await backendAPI.register(u, em, pw, fn, hp);
+        this._updateUserUI(newUser);
+        authModal?.classList.add('hidden');
+        showToast(`Account created! Welcome, ${backendAPI.escapeHtml(newUser.full_name || newUser.username)}!`);
+      } catch (e) {
+        showToast(`Registration failed: ${backendAPI.escapeHtml(e.message)}`);
+      }
+    });
+  }
+
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
   window.app = new FLStudioApp();
 });
+

@@ -105,6 +105,19 @@ class Sequencer {
 
       if (ch.type === 'drum') {
         this.engine.triggerChannel(ch.name, time, vel);
+      } else if (ch.type === 'audio' && ch.audioBuffer) {
+        // Play recorded vocal / audio clip
+        try {
+          const src = this.engine.ctx.createBufferSource();
+          src.buffer = ch.audioBuffer;
+          const gainNode = this.engine.ctx.createGain();
+          gainNode.gain.setValueAtTime(vel * (ch.volume || 1), time);
+          src.connect(gainNode);
+          gainNode.connect(this.engine.masterCompressor);
+          src.start(time);
+        } catch (e) {
+          console.warn('Audio clip playback failed:', e);
+        }
       } else {
         // Synth: find notes for this step from piano roll
         const stepNotes = ch.notes.filter(n => n.step === step);

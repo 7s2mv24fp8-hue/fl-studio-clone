@@ -101,7 +101,35 @@ Always include "message" and "suggestions".
 If the user just chats or asks questions, return only "message" and "suggestions" with no beat/mix.`;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. GEMINI CLIENT
+// Shared JSON parsing helper for all LLM clients
+function parseLLMJSON(textContent) {
+  if (!textContent || typeof textContent !== 'string') {
+    throw new Error('Empty or invalid response from AI');
+  }
+  try {
+    return JSON.parse(textContent);
+  } catch (_) {
+    // 1. Check for markdown code fence ```json ... ```
+    const jsonMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[1].trim());
+      } catch (__) {}
+    }
+    // 2. Fallback: extract first { to last }
+    const start = textContent.indexOf('{');
+    const end = textContent.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(textContent.slice(start, end + 1));
+      } catch (___) {}
+    }
+    throw new Error('Could not parse AI response as JSON. Output was: ' + textContent.slice(0, 100));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. LLM CLIENTS (Cloud Gemini, Local Ollama, Local OpenAI-Compatible)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class GeminiClient {
@@ -119,13 +147,22 @@ class GeminiClient {
 
   hasKey() { return this.apiKey.length > 0; }
 
-  /**
-   * Send a chat request to Gemini with conversation history.
-   * @param {Array} messages - Array of {role, text} objects
-   * @param {string} systemPrompt - System instruction
-   * @param {object} opts
-   * @returns {Promise<object>} Parsed JSON response
-   */
+  async testConnection() {
+    if (!this.hasKey()) {
+      return { ok: false, message: 'No Gemini API key configured.' };
+    }
+    try {
+      const resp = await fetch(`${this.baseUrl}/${this.model}?key=${this.apiKey}`);
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        return { ok: false, message: err.error?.message || `HTTP ${resp.status}` };
+      }
+      return { ok: true, message: `Connected to Google Gemini (${this.model})` };
+    } catch (err) {
+      return { ok: false, message: err.message };
+    }
+  }
+
   async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
     if (!this.hasKey()) throw new Error('No Gemini API key set');
 
@@ -134,7 +171,6 @@ class GeminiClient {
 
     const url = `${this.baseUrl}/${this.model}:generateContent?key=${this.apiKey}`;
 
-    // Build Gemini request body
     const contents = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.text }],
@@ -179,28 +215,7 @@ class GeminiClient {
 
       if (!textContent) throw new Error('Empty response from Gemini');
 
-      // Parse JSON response
-      let parsed;
-      try {
-        // Try direct parse
-        parsed = JSON.parse(textContent);
-      } catch {
-        // Try to extract JSON from markdown code block
-        const jsonMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[1].trim());
-        } else {
-          // Last resort: find first { to last }
-          const start = textContent.indexOf('{');
-          const end = textContent.lastIndexOf('}');
-          if (start !== -1 && end > start) {
-            parsed = JSON.parse(textContent.slice(start, end + 1));
-          } else {
-            throw new Error('Could not parse AI response as JSON');
-          }
-        }
-      }
-
+      const parsed = parseLLMJSON(textContent);
       onStatus('done');
       this._abortCtrl = null;
       return parsed;
@@ -212,6 +227,245 @@ class GeminiClient {
       }
       onStatus('error');
       this._abortCtrl = null;
+      throw err;
+    }
+  }
+
+  cancel() {
+    if (this._abortCtrl) {
+      this._abortCtrl.abort();
+      this._abortCtrl = null;
+    }
+  }
+}
+
+/**
+ * Client for local Ollama instances (e.g. running chatmusician, llama3, mistral, qwen2.5)
+ */
+class OllamaClient {
+  constructor() {
+    this.baseUrl = localStorage.getItem('fl-studio-ollama-url') || 'http://localhost:11434';
+    this.model   = localStorage.getItem('fl-studio-ollama-model') || 'chatmusician';
+    this._abortCtrl = null;
+  }
+
+  setConfig(url, model) {
+    if (url !== undefined) {
+      this.baseUrl = (url.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+      localStorage.setItem('fl-studio-ollama-url', this.baseUrl);
+    }
+    if (model !== undefined) {
+      this.model = model.trim() || 'chatmusician';
+      localStorage.setItem('fl-studio-ollama-model', this.model);
+    }
+  }
+
+  async fetchModels() {
+    try {
+      const resp = await fetch(`${this.baseUrl}/api/tags`, { method: 'GET' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return (data.models || []).map(m => m.name);
+    } catch (err) {
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error('Could not reach Ollama. Ensure Ollama is running and CORS is enabled via OLLAMA_ORIGINS="*" ollama serve.');
+      }
+      throw err;
+    }
+  }
+
+  async testConnection() {
+    try {
+      const models = await this.fetchModels();
+      const hasSelected = models.some(m => m.toLowerCase().includes(this.model.toLowerCase()));
+      return {
+        ok: true,
+        message: `Connected to Ollama! Found ${models.length} model(s).` +
+          (hasSelected ? ` (Model "${this.model}" found)` : ` (Tip: '${this.model}' not in local tags, will attempt or choose from list)`),
+        models,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err.message,
+      };
+    }
+  }
+
+  async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
+    if (this._abortCtrl) this._abortCtrl.abort();
+    this._abortCtrl = new AbortController();
+
+    const url = `${this.baseUrl}/api/chat`;
+    const ollamaMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      })),
+    ];
+
+    const body = {
+      model: this.model,
+      messages: ollamaMessages,
+      format: 'json',
+      stream: false,
+      options: {
+        temperature: 0.8,
+      },
+    };
+
+    onStatus('thinking');
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: this._abortCtrl.signal,
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const textContent = data.message?.content;
+      if (!textContent) throw new Error('Empty response from Ollama');
+
+      const parsed = parseLLMJSON(textContent);
+      onStatus('done');
+      this._abortCtrl = null;
+      return parsed;
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        onStatus('cancelled');
+        throw new Error('Request cancelled');
+      }
+      onStatus('error');
+      this._abortCtrl = null;
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error(`Cannot connect to Ollama at ${this.baseUrl}. Make sure Ollama is running with CORS enabled (OLLAMA_ORIGINS="*" ollama serve).`);
+      }
+      throw err;
+    }
+  }
+
+  cancel() {
+    if (this._abortCtrl) {
+      this._abortCtrl.abort();
+      this._abortCtrl = null;
+    }
+  }
+}
+
+/**
+ * Client for OpenAI-compatible local servers (LM Studio, LocalAI, vLLM, text-generation-webui)
+ */
+class OpenAICompatClient {
+  constructor() {
+    this.baseUrl = localStorage.getItem('fl-studio-local-openai-url') || 'http://localhost:1234/v1';
+    this.model   = localStorage.getItem('fl-studio-local-openai-model') || 'local-model';
+    this._abortCtrl = null;
+  }
+
+  setConfig(url, model) {
+    if (url !== undefined) {
+      this.baseUrl = (url.trim() || 'http://localhost:1234/v1').replace(/\/+$/, '');
+      localStorage.setItem('fl-studio-local-openai-url', this.baseUrl);
+    }
+    if (model !== undefined) {
+      this.model = model.trim() || 'local-model';
+      localStorage.setItem('fl-studio-local-openai-model', this.model);
+    }
+  }
+
+  async fetchModels() {
+    try {
+      const resp = await fetch(`${this.baseUrl}/models`, { method: 'GET' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return (data.data || []).map(m => m.id);
+    } catch (err) {
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error(`Cannot connect to server at ${this.baseUrl}. Check if your local server is running with CORS enabled.`);
+      }
+      throw err;
+    }
+  }
+
+  async testConnection() {
+    try {
+      const models = await this.fetchModels();
+      return {
+        ok: true,
+        message: `Connected! Found ${models.length} model(s) on local server.`,
+        models,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err.message,
+      };
+    }
+  }
+
+  async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
+    if (this._abortCtrl) this._abortCtrl.abort();
+    this._abortCtrl = new AbortController();
+
+    const url = `${this.baseUrl}/chat/completions`;
+    const openAIMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      })),
+    ];
+
+    const body = {
+      model: this.model,
+      messages: openAIMessages,
+      response_format: { type: 'json_object' },
+      temperature: 0.8,
+    };
+
+    onStatus('thinking');
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: this._abortCtrl.signal,
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      const textContent = data.choices?.[0]?.message?.content;
+      if (!textContent) throw new Error('Empty response from local LLM');
+
+      const parsed = parseLLMJSON(textContent);
+      onStatus('done');
+      this._abortCtrl = null;
+      return parsed;
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        onStatus('cancelled');
+        throw new Error('Request cancelled');
+      }
+      onStatus('error');
+      this._abortCtrl = null;
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        throw new Error(`Cannot connect to local LLM server at ${this.baseUrl}. Make sure LM Studio / LocalAI is running and CORS is enabled.`);
+      }
       throw err;
     }
   }
@@ -390,7 +644,19 @@ class MixMaster {
 
 class AIProducer {
   constructor() {
-    this.gemini = new GeminiClient();
+    this.gemini      = new GeminiClient();
+    this.ollama      = new OllamaClient();
+    this.localOpenAI = new OpenAICompatClient();
+
+    // Active provider: 'ollama' | 'local-openai' | 'gemini'
+    // Default to 'ollama' if no gemini key is found, or stored preference
+    const storedProvider = localStorage.getItem('fl-studio-llm-provider');
+    if (storedProvider && ['ollama', 'local-openai', 'gemini'].includes(storedProvider)) {
+      this.provider = storedProvider;
+    } else {
+      this.provider = this.gemini.hasKey() ? 'gemini' : 'ollama';
+    }
+
     this.conversation = [];    // { role: 'user'|'model', text: string }
     this.isProcessing = false;
     this.undoStack = [];       // Array of { beat, mix } snapshots
@@ -401,8 +667,41 @@ class AIProducer {
     this.selectedMoods = [];
   }
 
+  // Provider configuration
+  setProvider(provider) {
+    if (['ollama', 'local-openai', 'gemini'].includes(provider)) {
+      this.provider = provider;
+      localStorage.setItem('fl-studio-llm-provider', provider);
+    }
+  }
+
+  getProvider() { return this.provider; }
+
+  getActiveClient() {
+    if (this.provider === 'ollama') return this.ollama;
+    if (this.provider === 'local-openai') return this.localOpenAI;
+    return this.gemini;
+  }
+
+  getActiveDisplayName() {
+    if (this.provider === 'ollama') return `Ollama (${this.ollama.model})`;
+    if (this.provider === 'local-openai') return `Local (${this.localOpenAI.model})`;
+    return 'Gemini Flash';
+  }
+
+  hasActiveConnection() {
+    if (this.provider === 'gemini') return this.gemini.hasKey();
+    if (this.provider === 'ollama') return !!this.ollama.baseUrl;
+    if (this.provider === 'local-openai') return !!this.localOpenAI.baseUrl;
+    return false;
+  }
+
+  async testActiveConnection() {
+    return this.getActiveClient().testConnection();
+  }
+
   setApiKey(key) { this.gemini.setApiKey(key); }
-  hasApiKey()    { return this.gemini.hasKey(); }
+  hasApiKey()    { return this.hasActiveConnection(); }
   getApiKey()    { return this.gemini.apiKey; }
 
   /**
@@ -464,8 +763,10 @@ class AIProducer {
    * @returns {Promise<object>} { message, suggestions, hasBeat, hasMix }
    */
   async produce(userPrompt, sequencer, audioEngine, { onStatus = () => {} } = {}) {
+    const activeClient = this.getActiveClient();
+
     if (this.isProcessing) {
-      this.gemini.cancel();
+      activeClient.cancel();
       await new Promise(r => setTimeout(r, 100));
     }
 
@@ -481,7 +782,7 @@ class AIProducer {
 
     try {
       const systemPrompt = this._buildSystemPrompt(sequencer);
-      const result = await this.gemini.chat(this.conversation, systemPrompt, { onStatus });
+      const result = await activeClient.chat(this.conversation, systemPrompt, { onStatus });
 
       // Add AI response to conversation
       this.conversation.push({
@@ -578,7 +879,7 @@ class AIProducer {
   }
 
   cancel() {
-    this.gemini.cancel();
+    this.getActiveClient().cancel();
     this.isProcessing = false;
   }
 }
@@ -586,10 +887,12 @@ class AIProducer {
 // ─────────────────────────────────────────────────────────────────────────────
 // Expose
 // ─────────────────────────────────────────────────────────────────────────────
-window.AIProducer        = AIProducer;
-window.GeminiClient      = GeminiClient;
-window.BeatGenerator     = BeatGenerator;
-window.MixMaster         = MixMaster;
+window.AIProducer          = AIProducer;
+window.GeminiClient        = GeminiClient;
+window.OllamaClient        = OllamaClient;
+window.OpenAICompatClient  = OpenAICompatClient;
+window.BeatGenerator       = BeatGenerator;
+window.MixMaster           = MixMaster;
 window.AI_PRODUCER_GENRES  = AI_PRODUCER_GENRES;
 window.AI_PRODUCER_MOODS   = AI_PRODUCER_MOODS;
 window.AI_PRODUCER_ACTIONS = AI_PRODUCER_ACTIONS;

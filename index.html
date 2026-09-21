@@ -3,15 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FL Studio — Web Clone</title>
-  <meta name="description" content="A browser-based FL Studio clone with step sequencer, piano roll, mixer, and playlist. Powered by the Web Audio API.">
-
-  <!-- Fonts -->
+  <title>BeYou Studio — Web DAW</title>
+  <meta name="description" content="BeYou Studio — A browser-based Web DAW with step sequencer, piano roll, mixer, audio recorder, and AI beat copilot. Powered by Web Audio API.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-
-  <!-- Styles -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
@@ -25,7 +21,8 @@
       <div class="win-btn max"    title="Maximize"></div>
     </div>
     <div class="app-title">
-      <span>FL</span>&nbsp;Studio — Web Clone &nbsp;|&nbsp; Pattern 1
+      <span style="color:#ff6a00;font-weight:900;letter-spacing:1px;">BeYou</span>&nbsp;Studio &nbsp;|&nbsp;
+      <input id="project-title-input" class="proj-title-inline-input" value="Untitled Project" title="Click to rename project" spellcheck="false" />
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
       <div style="font-size:10px;color:var(--text-muted);">Space=Play &nbsp; F6=Stop &nbsp; Ctrl+M=Mixer</div>
@@ -80,6 +77,15 @@
 
     <div class="toolbar-separator"></div>
 
+    <!-- Project Name Pill (Click to rename) -->
+    <div class="project-pill-wrap" title="Current Project Name (Click to rename)">
+      <span class="proj-pill-icon">🎵</span>
+      <input id="tb-project-title-input" class="tb-proj-input" value="Untitled Project" spellcheck="false" title="Click to rename project" />
+      <span class="proj-edit-hint">✏️</span>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
     <!-- View toggles -->
     <div class="view-btns">
       <button class="view-btn" onclick="app._switchTab('piano-roll')" title="Piano Roll (Ctrl+P)">
@@ -128,6 +134,32 @@
       </div>
     </div>
 
+    <div class="toolbar-separator"></div>
+
+    <!-- Cloud Projects & Database Controls -->
+    <div class="cloud-group">
+      <button id="btn-cloud-save" class="tb-cloud-btn" title="Save Project to Database">
+        <span>💾</span> Save
+      </button>
+      <button id="btn-cloud-open" class="tb-cloud-btn" title="Open Cloud Projects">
+        <span>📂</span> Projects
+      </button>
+      <button id="btn-admin-dash" class="tb-cloud-btn admin-btn" title="Super Admin Dashboard">
+        <span>⚡</span> Admin Panel
+      </button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <!-- User Profile Badge -->
+    <div class="user-badge-group">
+      <div id="user-badge" class="user-pill" title="User Account (Click to Switch/Sign In)">
+        <span class="user-avatar-icon">👑</span>
+        <span id="user-name-display" class="user-name-text">Rahul Sharma</span>
+        <span id="user-role-tag" class="role-badge admin">ADMIN</span>
+      </div>
+    </div>
+
     <!-- AI Beat Suggester toggle -->
     <div style="margin-left:auto;padding-right:10px;">
       <button id="btn-ai-toggle" title="AI Beat Suggester">
@@ -135,6 +167,23 @@
         ✨ AI Beats
       </button>
     </div>
+  </div>
+
+  <!-- ── Floating Live Voice Recording HUD ───────────────── -->
+  <div id="top-rec-hud" class="hidden">
+    <div class="rec-hud-badge">
+      <div class="rec-hud-dot"></div>
+      <span>REC VOICE</span>
+    </div>
+    <div id="rec-hud-timer" class="rec-hud-timer">0:00</div>
+    <div class="rec-hud-pulse-bars">
+      <div class="rec-hud-bar"></div>
+      <div class="rec-hud-bar"></div>
+      <div class="rec-hud-bar"></div>
+      <div class="rec-hud-bar"></div>
+      <div class="rec-hud-bar"></div>
+    </div>
+    <button id="btn-hud-stop-rec" class="rec-hud-stop-btn">⏹ Stop & Insert Take</button>
   </div>
 
   <!-- ── Main Content ──────────────────────────────────── -->
@@ -451,23 +500,46 @@
               <span class="ai-music-badge">MusicGen</span>
             </div>
             <div class="ai-music-topbar-right">
-              <button id="ai-music-key-toggle" class="ai-music-key-btn" title="API Key Settings">
-                🔑 <span id="ai-music-key-status">No Key</span>
+              <button id="ai-music-key-toggle" class="ai-music-key-btn" title="Audio Engine Settings">
+                ⚙️ <span id="ai-music-key-status">Audio Setup</span>
               </button>
             </div>
           </div>
 
-          <!-- API Key setup (collapsible) -->
+          <!-- Audio Generator setup (collapsible) -->
           <div id="ai-music-key-panel" class="ai-music-key-panel hidden">
             <div class="ai-key-panel-inner">
-              <label class="ai-key-label">Hugging Face API Token</label>
-              <div class="ai-key-input-row">
-                <input type="password" id="ai-music-key-input" class="ai-key-input" placeholder="hf_xxxxxxxxxxxx" autocomplete="off">
-                <button id="ai-music-key-save" class="ai-key-save-btn">Save</button>
+              <div class="ai-provider-nav">
+                <button type="button" class="ai-audio-tab active" data-audio-provider="local">💻 Local Audio Server (MusicGen / AudioCraft)</button>
+                <button type="button" class="ai-audio-tab" data-audio-provider="hf">🤗 Hugging Face Cloud</button>
               </div>
-              <div class="ai-key-hint">
-                Get a free token at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>
+
+              <!-- Local Audio Tab -->
+              <div class="ai-audio-content active" id="ai-audio-tab-local">
+                <label class="ai-key-label">Local Audio Generation Server URL</label>
+                <div class="ai-key-input-row">
+                  <input type="text" id="ai-music-local-url" class="ai-key-input" value="http://localhost:8000" placeholder="http://localhost:8000">
+                  <button type="button" id="ai-music-local-test" class="ai-action-btn secondary">⚡ Test Ping</button>
+                  <button type="button" id="ai-music-local-save" class="ai-key-save-btn">Save & Use Local</button>
+                </div>
+                <div class="ai-key-hint">
+                  Run <code>python scripts/local_music_server.py</code> to start your offline generator.
+                </div>
               </div>
+
+              <!-- HF Tab -->
+              <div class="ai-audio-content" id="ai-audio-tab-hf">
+                <label class="ai-key-label">Hugging Face API Token</label>
+                <div class="ai-key-input-row">
+                  <input type="password" id="ai-music-key-input" class="ai-key-input" placeholder="hf_xxxxxxxxxxxx" autocomplete="off">
+                  <button type="button" id="ai-music-key-save" class="ai-key-save-btn">Save & Use HF</button>
+                </div>
+                <div class="ai-key-hint">
+                  Get a free token at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>
+                </div>
+              </div>
+
+              <div id="ai-music-status-feedback" class="ai-status-feedback hidden"></div>
             </div>
           </div>
 
@@ -605,7 +677,7 @@
             <div class="ai-producer-title">
               <span class="ai-producer-icon">🤖</span>
               <span>AI <strong>Producer</strong></span>
-              <span class="ai-producer-badge">Gemini</span>
+              <span class="ai-producer-badge" id="ai-producer-provider-badge">Ollama</span>
             </div>
             <div class="ai-producer-topbar-right">
               <button id="ai-producer-undo" class="ai-producer-undo-btn" disabled title="Undo last AI change">
@@ -614,23 +686,95 @@
               <button id="ai-producer-clear-chat" class="ai-producer-clear-btn" title="Clear conversation">
                 🗑 Clear
               </button>
-              <button id="ai-producer-key-toggle" class="ai-producer-key-btn" title="API Key Settings">
-                🔑 <span id="ai-producer-key-status">No Key</span>
+              <button id="ai-producer-key-toggle" class="ai-producer-key-btn" title="Model & Provider Settings">
+                ⚙️ <span id="ai-producer-key-status">Ollama</span>
               </button>
             </div>
           </div>
 
-          <!-- API Key setup (collapsible) -->
+          <!-- Model & Provider setup (collapsible) -->
           <div id="ai-producer-key-panel" class="ai-producer-key-panel hidden">
             <div class="ai-key-panel-inner">
-              <label class="ai-key-label">Google Gemini API Key</label>
-              <div class="ai-key-input-row">
-                <input type="password" id="ai-producer-key-input" class="ai-key-input" placeholder="AIza..." autocomplete="off">
-                <button id="ai-producer-key-save" class="ai-key-save-btn">Save</button>
+              <div class="ai-provider-nav">
+                <button type="button" class="ai-provider-tab active" data-provider="ollama">🦙 Local Ollama (Music LLM)</button>
+                <button type="button" class="ai-provider-tab" data-provider="local-openai">🖥️ LM Studio / LocalAI</button>
+                <button type="button" class="ai-provider-tab" data-provider="gemini">☁️ Google Gemini</button>
               </div>
-              <div class="ai-key-hint">
-                Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+
+              <!-- Ollama Tab Content -->
+              <div class="ai-provider-content active" id="ai-tab-ollama">
+                <div class="ai-config-grid">
+                  <div class="ai-config-field">
+                    <label class="ai-key-label">Ollama Host URL</label>
+                    <input type="text" id="ai-ollama-url" class="ai-key-input" value="http://localhost:11434" placeholder="http://localhost:11434">
+                  </div>
+                  <div class="ai-config-field">
+                    <label class="ai-key-label">Model Name</label>
+                    <div class="ai-model-input-group">
+                      <input type="text" id="ai-ollama-model" class="ai-key-input" value="chatmusician" placeholder="chatmusician, llama3.2, etc.">
+                      <select id="ai-ollama-model-select" class="ai-model-select hidden" title="Select installed model">
+                        <option value="">Choose detected model...</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="ai-model-quick-chips">
+                  <span class="ai-quick-label">Suggested models:</span>
+                  <button type="button" class="ai-chip-btn" data-model="chatmusician">🎵 chatmusician (Music-tuned)</button>
+                  <button type="button" class="ai-chip-btn" data-model="llama3.2">🦙 llama3.2</button>
+                  <button type="button" class="ai-chip-btn" data-model="mistral">⚡ mistral</button>
+                  <button type="button" class="ai-chip-btn" data-model="qwen2.5:7b">🧠 qwen2.5:7b</button>
+                  <button type="button" class="ai-chip-btn" data-model="deepseek-r1:8b">🔬 deepseek-r1:8b</button>
+                </div>
+
+                <div class="ai-panel-actions">
+                  <button type="button" id="ai-ollama-scan-btn" class="ai-action-btn secondary">🔍 Scan Local Models</button>
+                  <button type="button" id="ai-ollama-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
+                  <button type="button" id="ai-ollama-save-btn" class="ai-key-save-btn">Save & Use Ollama</button>
+                </div>
+
+                <div class="ai-key-hint">
+                  <strong>💡 How to run Ollama for Web apps:</strong> Run <code>OLLAMA_ORIGINS="*" ollama serve</code> in your terminal to enable CORS. To install a music LLM, run <code>ollama run chatmusician</code>.
+                </div>
               </div>
+
+              <!-- LM Studio / OpenAI Local Tab Content -->
+              <div class="ai-provider-content" id="ai-tab-local-openai">
+                <div class="ai-config-grid">
+                  <div class="ai-config-field">
+                    <label class="ai-key-label">Local Server Base URL</label>
+                    <input type="text" id="ai-local-openai-url" class="ai-key-input" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
+                  </div>
+                  <div class="ai-config-field">
+                    <label class="ai-key-label">Model Identifier</label>
+                    <input type="text" id="ai-local-openai-model" class="ai-key-input" value="local-model" placeholder="e.g. local-model or loaded model in LM Studio">
+                  </div>
+                </div>
+                <div class="ai-panel-actions">
+                  <button type="button" id="ai-local-openai-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
+                  <button type="button" id="ai-local-openai-save-btn" class="ai-key-save-btn">Save & Use Local</button>
+                </div>
+                <div class="ai-key-hint">
+                  <strong>💡 In LM Studio:</strong> Open the Local Server tab (↔️ icon), enable <em>CORS</em>, load your music model, and click <em>Start Server</em>.
+                </div>
+              </div>
+
+              <!-- Gemini Tab Content -->
+              <div class="ai-provider-content" id="ai-tab-gemini">
+                <label class="ai-key-label">Google Gemini API Key</label>
+                <div class="ai-key-input-row">
+                  <input type="password" id="ai-producer-key-input" class="ai-key-input" placeholder="AIza..." autocomplete="off">
+                  <button type="button" id="ai-gemini-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
+                  <button type="button" id="ai-producer-key-save" class="ai-key-save-btn">Save & Use Gemini</button>
+                </div>
+                <div class="ai-key-hint">
+                  Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+                </div>
+              </div>
+
+              <!-- Live connection feedback banner -->
+              <div id="ai-producer-status-feedback" class="ai-status-feedback hidden"></div>
             </div>
           </div>
 
@@ -724,7 +868,7 @@
       Step: <span id="status-step">—</span>
     </div>
     <div class="status-item" style="margin-left:auto;">
-      <span style="color:var(--accent)">FL Studio Web Clone</span> &nbsp;·&nbsp; Web Audio API + Canvas
+      <span style="color:var(--accent);font-weight:700;">BeYou Studio</span> &nbsp;·&nbsp; Web Audio API + AI Music DAW
     </div>
   </div>
 
@@ -827,6 +971,259 @@
   }
 </style>
 
+<!-- ── Modals: Cloud Projects, Save, Admin Dashboard, Auth ──────────── -->
+
+<!-- Modal: Save Project -->
+<div id="modal-save-project" class="fl-modal-overlay hidden">
+  <div class="fl-modal-box">
+    <div class="fl-modal-header">
+      <div class="fl-modal-title">💾 Save Project to Database</div>
+      <button class="fl-modal-close" data-close="modal-save-project">✕</button>
+    </div>
+    <div class="fl-modal-body">
+      <div class="fl-form-group">
+        <label class="fl-form-label">Project Title</label>
+        <input type="text" id="save-project-title" class="fl-form-input" placeholder="e.g. Cyberpunk Trap Beat" value="My Project">
+      </div>
+      <div class="fl-form-group">
+        <div style="display:flex;gap:12px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);background:rgba(255,255,255,0.02);padding:10px;border-radius:6px;border:1px solid var(--border);">
+          <div>BPM: <span id="save-preview-bpm" style="color:var(--accent);font-weight:700;">140</span></div>
+          <div>Channels: <span id="save-preview-channels" style="color:#a855f7;font-weight:700;">8</span></div>
+          <div>Mode: <span style="color:#00d4aa;font-weight:700;">16 Steps</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="fl-modal-footer">
+      <button class="fl-btn-secondary" data-close="modal-save-project">Cancel</button>
+      <button id="btn-save-project-confirm" class="fl-btn-primary">Save to Cloud</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Cloud Projects Browser -->
+<div id="modal-cloud-projects" class="fl-modal-overlay hidden">
+  <div class="fl-modal-box large">
+    <div class="fl-modal-header">
+      <div class="fl-modal-title">📂 Cloud Projects Database</div>
+      <button class="fl-modal-close" data-close="modal-cloud-projects">✕</button>
+    </div>
+    <div class="fl-modal-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <input type="text" id="cloud-proj-search" class="fl-form-input" placeholder="Search saved projects..." style="max-width:280px;margin-bottom:0;">
+        <button id="btn-modal-new-save" class="fl-btn-primary" style="padding:6px 12px;font-size:11px;">+ Save Current Project</button>
+      </div>
+      <div id="cloud-proj-container" class="cloud-proj-list">
+        <div style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px;">Loading projects from database...</div>
+      </div>
+    </div>
+    <div class="fl-modal-footer">
+      <button class="fl-btn-secondary" data-close="modal-cloud-projects">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Super Admin Dashboard -->
+<div id="modal-admin-dashboard" class="fl-modal-overlay hidden">
+  <div class="fl-modal-box large" style="max-width:920px;">
+    <div class="fl-modal-header">
+      <div class="fl-modal-title">
+        <span style="color:#ff6a00;">⚡</span> BeYou Admin Dashboard
+        <span class="role-badge admin" style="margin-left:6px;">SUPER ADMIN: Rahul Sharma</span>
+      </div>
+      <button class="fl-modal-close" data-close="modal-admin-dashboard">✕</button>
+    </div>
+    <div class="admin-tabs">
+      <button class="admin-tab-btn active" data-admin-tab="overview">📊 System Overview</button>
+      <button class="admin-tab-btn" data-admin-tab="users">👥 User Management</button>
+      <button class="admin-tab-btn" data-admin-tab="projects">📁 All Projects</button>
+      <button class="admin-tab-btn" data-admin-tab="logs">📜 Audit Logs</button>
+    </div>
+    <div class="fl-modal-body" style="min-height:360px;">
+      <!-- Tab 1: Overview -->
+      <div id="admin-tab-overview" class="admin-tab-pane active">
+        <div class="admin-stats-grid">
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Total Users</div>
+            <div id="adm-stat-users" class="admin-stat-value">—</div>
+            <div class="admin-stat-sub">Registered accounts</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Cloud Projects</div>
+            <div id="adm-stat-projects" class="admin-stat-value">—</div>
+            <div class="admin-stat-sub">Saved project states</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Active Sessions</div>
+            <div id="adm-stat-sessions" class="admin-stat-value">—</div>
+            <div class="admin-stat-sub">Bearer auth tokens</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Database Size</div>
+            <div id="adm-stat-db" class="admin-stat-value">—</div>
+            <div class="admin-stat-sub">SQLite storage</div>
+          </div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:10px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:10px;">Backend & AI Engine Status</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:10px;font-size:11px;">
+            <div>Audio Engine: <span id="adm-stat-engine" style="color:var(--accent);font-weight:600;">—</span></div>
+            <div>Server Uptime: <span id="adm-stat-uptime" style="color:#00d4aa;font-family:var(--font-mono);">—</span></div>
+            <div>Super Admin: <span style="color:#f59e0b;font-weight:600;">Rahul Sharma (username: rahul)</span></div>
+            <div>Database Engine: <span style="font-family:var(--font-mono);color:var(--text-muted);">fl_studio.db (SQLite 3)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Users -->
+      <div id="admin-tab-users" class="admin-tab-pane">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div style="font-size:12px;font-weight:600;color:var(--text-primary);">Registered User Accounts</div>
+          <button id="btn-admin-show-add-user" class="fl-btn-primary" style="padding:4px 10px;font-size:11px;">+ Add User</button>
+        </div>
+        <!-- Add User Form -->
+        <div id="admin-add-user-form" class="hidden" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;margin-bottom:8px;color:#ff6a00;">Create New User Account</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input type="text" id="adm-new-username" class="fl-form-input" placeholder="Username">
+            <input type="email" id="adm-new-email" class="fl-form-input" placeholder="Email">
+            <input type="password" id="adm-new-password" class="fl-form-input" placeholder="Password">
+            <input type="text" id="adm-new-fullname" class="fl-form-input" placeholder="Full Name">
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button id="adm-cancel-add-user" class="fl-btn-secondary" style="padding:4px 10px;font-size:10px;">Cancel</button>
+            <button id="adm-submit-add-user" class="fl-btn-primary" style="padding:4px 12px;font-size:10px;">Create User</button>
+          </div>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Full Name</th>
+                <th>Role</th>
+                <th>Projects</th>
+                <th>Last Login</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-tbody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab 3: Projects -->
+      <div id="admin-tab-projects" class="admin-tab-pane">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">All Projects Across All Users</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Project ID</th>
+                <th>Title</th>
+                <th>Creator</th>
+                <th>BPM</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="admin-projects-tbody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab 4: Logs -->
+      <div id="admin-tab-logs" class="admin-tab-pane">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">System & Audit Trail</div>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="admin-logs-tbody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="fl-modal-footer">
+      <button class="fl-btn-secondary" data-close="modal-admin-dashboard">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: User Sign In / Register -->
+<div id="modal-auth" class="fl-modal-overlay hidden">
+  <div class="fl-modal-box">
+    <div class="fl-modal-header">
+      <div class="fl-modal-title">🔐 Account & Authentication</div>
+      <button class="fl-modal-close" data-close="modal-auth">✕</button>
+    </div>
+    <div class="admin-tabs" style="padding:0 14px;">
+      <button class="admin-tab-btn active" id="auth-tab-btn-login">Sign In</button>
+      <button class="admin-tab-btn" id="auth-tab-btn-register">Register</button>
+    </div>
+    <div class="fl-modal-body">
+      <!-- 1-Click Super Admin Login shortcut -->
+      <div style="background:linear-gradient(135deg,rgba(255,106,0,0.15),rgba(168,85,247,0.15));border:1px solid rgba(255,106,0,0.3);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#ffaa44;">👑 Rahul Sharma (Super Admin)</div>
+          <div style="font-size:10px;color:var(--text-muted);">Quick sign in with Super Admin rights</div>
+        </div>
+        <button id="btn-quick-admin-login" class="fl-btn-primary" style="padding:4px 10px;font-size:10px;">Quick Sign In</button>
+      </div>
+
+      <!-- Sign In Form -->
+      <div id="auth-form-login">
+        <!-- Bot protection honeypot (hidden from real users) -->
+        <input type="text" id="auth-login-hp" style="display:none!important;position:absolute;left:-9999px;" tabindex="-1" autocomplete="off">
+        <div class="fl-form-group">
+          <label class="fl-form-label">Username or Email</label>
+          <input type="text" id="auth-login-user" class="fl-form-input" placeholder="e.g. rahul">
+        </div>
+        <div class="fl-form-group">
+          <label class="fl-form-label">Password</label>
+          <input type="password" id="auth-login-pass" class="fl-form-input" placeholder="Password">
+        </div>
+        <button id="btn-auth-login-submit" class="fl-btn-primary" style="width:100%;margin-top:8px;">Sign In</button>
+      </div>
+
+      <!-- Register Form -->
+      <div id="auth-form-register" class="hidden">
+        <!-- Bot protection honeypot (hidden from real users) -->
+        <input type="text" id="auth-reg-hp" style="display:none!important;position:absolute;left:-9999px;" tabindex="-1" autocomplete="off">
+        <div class="fl-form-group">
+          <label class="fl-form-label">Username</label>
+          <input type="text" id="auth-reg-user" class="fl-form-input" placeholder="e.g. beatmaker99 (alphanumeric, 3-30 chars)">
+        </div>
+        <div class="fl-form-group">
+          <label class="fl-form-label">Full Name</label>
+          <input type="text" id="auth-reg-fullname" class="fl-form-input" placeholder="e.g. Alex Producer">
+        </div>
+        <div class="fl-form-group">
+          <label class="fl-form-label">Email</label>
+          <input type="email" id="auth-reg-email" class="fl-form-input" placeholder="name@example.com">
+        </div>
+        <div class="fl-form-group">
+          <label class="fl-form-label">Password</label>
+          <input type="password" id="auth-reg-pass" class="fl-form-input" placeholder="Min 8 characters with numbers/symbols">
+        </div>
+        <button id="btn-auth-register-submit" class="fl-btn-primary" style="width:100%;margin-top:8px;">Create Account</button>
+      </div>
+    </div>
+    <div class="fl-modal-footer">
+      <button class="fl-btn-secondary" data-close="modal-auth">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Scripts ──────────────────────────────────────────── -->
 <script src="js/audio-engine.js"></script>
 <script src="js/sequencer.js"></script>
@@ -839,6 +1236,7 @@
 <script src="js/ai-suggester.js"></script>
 <script src="js/music-ai.js"></script>
 <script src="js/ai-producer.js"></script>
+<script src="js/backend-api.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Global utility functions (called from inline HTML) -->
