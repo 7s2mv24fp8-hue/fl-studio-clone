@@ -200,36 +200,11 @@ def on_startup():
 
 # ── AI Music Synthesis Logic ──────────────────────────────────────────────────
 
+from backend.music_engine import generate_procedural_music, parse_prompt_intent
+
 def generate_synthesized_wav(prompt: str, duration: int = 8, sample_rate: int = 32000) -> bytes:
-    """Generates an algorithmic synth groove WAV as a lightweight offline fallback."""
-    num_samples = int(duration * sample_rate)
-    buf = io.BytesIO()
-    with wave.open(buf, 'wb') as wav:
-        wav.setnchannels(2)
-        wav.setsampwidth(2)
-        wav.setframerate(sample_rate)
-
-        bpm = 120
-        quarter_note = sample_rate * 60 / bpm
-        sixteenth = quarter_note / 4
-
-        frames = bytearray()
-        for i in range(num_samples):
-            t = i / sample_rate
-            step = int(i // sixteenth) % 16
-
-            kick = math.sin(2 * math.pi * 55 * math.exp(-((i % quarter_note) / 3000))) if (i % quarter_note) < 3000 else 0
-            snare = (math.sin(i * 0.1) * 0.3 * math.exp(-((i % (quarter_note * 2)) / 5000))) if (step in [4, 12]) else 0
-            chord_idx = int((t * 0.5) % 4)
-            freqs = [110.0, 130.81, 146.83, 98.0]
-            bass = 0.4 * math.sin(2 * math.pi * freqs[chord_idx] * t)
-
-            val = max(-1.0, min(1.0, (kick * 0.7 + snare * 0.5 + bass * 0.4)))
-            sample_val = int(val * 30000)
-            frames.extend(struct.pack('<hh', sample_val, sample_val))
-
-        wav.writeframes(frames)
-    return buf.getvalue()
+    """Generates rich, genre-diverse multi-track audio tailored to the prompt."""
+    return generate_procedural_music(prompt, duration=duration)
 
 
 # ── Auth Endpoints (Rate Limited, Bot Protected, Password Checked) ─────────────

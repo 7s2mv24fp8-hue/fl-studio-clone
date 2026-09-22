@@ -56,42 +56,14 @@ except Exception as e:
     print("[*] Running in synthetic WAV generation mode. AudioCraft is optional.")
 
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
+from backend.music_engine import generate_procedural_music
+
 def generate_synthesized_wav(prompt: str, duration: int = 8, sample_rate: int = 32000) -> bytes:
-    """Generates a musical synth groove WAV as a lightweight fallback."""
-    num_samples = int(duration * sample_rate)
-    buf = io.BytesIO()
-    with wave.open(buf, 'wb') as wav:
-        wav.setnchannels(2)
-        wav.setsampwidth(2)
-        wav.setframerate(sample_rate)
-        
-        # Simple beat and chord progression based on prompt length
-        bpm = 120
-        quarter_note = sample_rate * 60 / bpm
-        sixteenth = quarter_note / 4
-        
-        frames = bytearray()
-        for i in range(num_samples):
-            t = i / sample_rate
-            step = int(i // sixteenth) % 16
-            
-            # Kick on 0, 4, 8, 12
-            kick = math.sin(2 * math.pi * 55 * math.exp(-((i % quarter_note) / 3000))) if (i % quarter_note) < 3000 else 0
-            
-            # Snare/clap on 4, 12
-            snare = (math.sin(i * 0.1) * 0.3 * math.exp(-((i % (quarter_note * 2)) / 5000))) if (step in [4, 12]) else 0
-            
-            # Bassline root notes (A minor: 110Hz, 130Hz, 146Hz, 98Hz)
-            chord_idx = int((t * 0.5) % 4)
-            freqs = [110.0, 130.81, 146.83, 98.0]
-            bass = 0.4 * math.sin(2 * math.pi * freqs[chord_idx] * t)
-            
-            val = max(-1.0, min(1.0, (kick * 0.7 + snare * 0.5 + bass * 0.4)))
-            sample_val = int(val * 30000)
-            frames.extend(struct.pack('<hh', sample_val, sample_val))
-            
-        wav.writeframes(frames)
-    return buf.getvalue()
+    """Generates a rich, genre-diverse multi-track audio groove tailored to the prompt."""
+    return generate_procedural_music(prompt, duration=duration)
 
 
 @app.get("/health")
