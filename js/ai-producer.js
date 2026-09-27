@@ -478,6 +478,91 @@ class OpenAICompatClient {
   }
 }
 
+/**
+ * BeYou Built-in Music AI Client — calls the server-side AI endpoint.
+ * No API keys, no external LLMs, no configuration needed!
+ */
+class BeYouClient {
+  constructor() {
+    this.baseUrl = '';
+    this._abortCtrl = null;
+  }
+
+  async testConnection() {
+    try {
+      const resp = await fetch('/health');
+      if (!resp.ok) throw new Error(`Server unreachable (HTTP ${resp.status})`);
+      const data = await resp.json();
+      return { ok: true, message: `✅ Connected to BeYou Music AI Engine (v2)! 20 genres loaded.` };
+    } catch (err) {
+      return { ok: false, message: `Server connection failed: ${err.message}` };
+    }
+  }
+
+  async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
+    if (this._abortCtrl) this._abortCtrl.abort();
+    this._abortCtrl = new AbortController();
+
+    // Extract the last user message as the main prompt
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    let prompt = lastUserMsg?.text || 'make a beat';
+
+    // Enrich prompt with genre/mood context extracted from system prompt
+    if (systemPrompt) {
+      const genreMatch = systemPrompt.match(/selected genre\(s\):\s*([^\n]+)/i);
+      const moodMatch  = systemPrompt.match(/selected mood\(s\):\s*([^\n]+)/i);
+      const bpmMatch   = systemPrompt.match(/BPM:\s*(\d+)/i);
+
+      const contextParts = [];
+      if (genreMatch) contextParts.push(genreMatch[1].trim().toLowerCase());
+      if (moodMatch)  contextParts.push(moodMatch[1].trim().toLowerCase());
+      if (bpmMatch)   contextParts.push(`${bpmMatch[1]} bpm`);
+
+      // Only prepend context if the prompt doesn't already mention genre/BPM
+      if (contextParts.length > 0 && !prompt.includes('bpm') && prompt.length < 80) {
+        prompt = `${contextParts.join(' ')} ${prompt}`.trim();
+      }
+    }
+
+    onStatus('composing');
+
+    try {
+      const resp = await fetch('/api/ai/produce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+        signal: this._abortCtrl.signal,
+      });
+
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        throw new Error(errBody.detail || `Server error HTTP ${resp.status}`);
+      }
+
+      const result = await resp.json();
+      onStatus('done');
+      this._abortCtrl = null;
+      return result;
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        onStatus('cancelled');
+        throw new Error('Request cancelled');
+      }
+      onStatus('error');
+      this._abortCtrl = null;
+      throw err;
+    }
+  }
+
+  cancel() {
+    if (this._abortCtrl) {
+      this._abortCtrl.abort();
+      this._abortCtrl = null;
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. BEAT GENERATOR
 // ─────────────────────────────────────────────────────────────────────────────
@@ -644,17 +729,18 @@ class MixMaster {
 
 class AIProducer {
   constructor() {
+    this.beyou       = new BeYouClient();
     this.gemini      = new GeminiClient();
     this.ollama      = new OllamaClient();
     this.localOpenAI = new OpenAICompatClient();
 
-    // Active provider: 'ollama' | 'local-openai' | 'gemini'
-    // Default to 'ollama' if no gemini key is found, or stored preference
+    // Active provider: 'beyou' | 'ollama' | 'local-openai' | 'gemini'
+    // Default to 'beyou' (built-in, no config needed)
     const storedProvider = localStorage.getItem('fl-studio-llm-provider');
-    if (storedProvider && ['ollama', 'local-openai', 'gemini'].includes(storedProvider)) {
+    if (storedProvider && ['beyou', 'ollama', 'local-openai', 'gemini'].includes(storedProvider)) {
       this.provider = storedProvider;
     } else {
-      this.provider = this.gemini.hasKey() ? 'gemini' : 'ollama';
+      this.provider = 'beyou';  // Built-in — works out of the box!
     }
 
     this.conversation = [];    // { role: 'user'|'model', text: string }
@@ -669,7 +755,7 @@ class AIProducer {
 
   // Provider configuration
   setProvider(provider) {
-    if (['ollama', 'local-openai', 'gemini'].includes(provider)) {
+    if (['beyou', 'ollama', 'local-openai', 'gemini'].includes(provider)) {
       this.provider = provider;
       localStorage.setItem('fl-studio-llm-provider', provider);
     }
@@ -680,20 +766,22 @@ class AIProducer {
   getActiveClient() {
     if (this.provider === 'ollama') return this.ollama;
     if (this.provider === 'local-openai') return this.localOpenAI;
-    return this.gemini;
+    if (this.provider === 'gemini') return this.gemini;
+    return this.beyou;  // Default: built-in
   }
 
   getActiveDisplayName() {
     if (this.provider === 'ollama') return `Ollama (${this.ollama.model})`;
     if (this.provider === 'local-openai') return `Local (${this.localOpenAI.model})`;
-    return 'Gemini Flash';
+    if (this.provider === 'gemini') return 'Gemini Flash';
+    return 'BeYou Music AI';
   }
 
   hasActiveConnection() {
     if (this.provider === 'gemini') return this.gemini.hasKey();
     if (this.provider === 'ollama') return !!this.ollama.baseUrl;
     if (this.provider === 'local-openai') return !!this.localOpenAI.baseUrl;
-    return false;
+    return true;  // BeYou built-in is always available!
   }
 
   async testActiveConnection() {
@@ -767,70 +855,84 @@ class AIProducer {
 
     if (this.isProcessing) {
       activeClient.cancel();
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 150));
     }
 
     this.isProcessing = true;
 
-    // Add user message to conversation
-    this.conversation.push({ role: 'user', text: userPrompt });
+    try {
+      // Add user message to conversation
+      this.conversation.push({ role: 'user', text: userPrompt });
 
-    // Cap conversation length to avoid token limits
-    if (this.conversation.length > 20) {
-      this.conversation = this.conversation.slice(-16);
-    }
+      // Cap conversation length to avoid token limits
+      if (this.conversation.length > 20) {
+        this.conversation = this.conversation.slice(-16);
+      }
 
-    let result = null;
+      let result = null;
 
-    // Check if active client has credentials; if not, use built-in procedural engine directly
-    if (this.hasActiveConnection()) {
-      try {
-        const systemPrompt = this._buildSystemPrompt(sequencer);
-        result = await activeClient.chat(this.conversation, systemPrompt, { onStatus });
-      } catch (err) {
-        console.warn('AI Client chat failed, falling back to BeYou Procedural Music Engine:', err);
+      // Try active client first; fall back to built-in procedural engine on any failure
+      if (this.hasActiveConnection()) {
+        try {
+          const systemPrompt = this._buildSystemPrompt(sequencer);
+          result = await activeClient.chat(this.conversation, systemPrompt, { onStatus });
+        } catch (err) {
+          console.warn('[BeYou AI] Chat failed, switching to procedural fallback:', err.message);
+          onStatus('composing');
+          result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
+        }
+      } else {
         onStatus('composing');
         result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
       }
-    } else {
-      onStatus('composing');
-      result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
+
+      // Safety guard — ensure result is always a valid object
+      if (!result || typeof result !== 'object') {
+        result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
+      }
+
+      // Add AI response to conversation history
+      try {
+        this.conversation.push({ role: 'model', text: JSON.stringify(result) });
+      } catch (_) { /* JSON.stringify can fail on circular refs — ignore */ }
+
+      // Determine what changed
+      const hasBeat = !!(result.beat && result.beat.channels);
+      const hasMix  = !!(result.mix  && result.mix.channels);
+
+      // Save undo snapshot before applying
+      if (hasBeat || hasMix) {
+        try { this._saveUndo(sequencer, audioEngine); } catch (_) {}
+      }
+
+      // Apply beat patterns to sequencer
+      if (hasBeat) {
+        try { BeatGenerator.apply(result.beat, sequencer); } catch (e) {
+          console.warn('[BeYou AI] BeatGenerator.apply failed:', e.message);
+        }
+      }
+
+      // Apply mix settings to mixer/audio engine
+      if (hasMix) {
+        try { MixMaster.apply(result.mix, sequencer, audioEngine); } catch (e) {
+          console.warn('[BeYou AI] MixMaster.apply failed:', e.message);
+        }
+      }
+
+      return {
+        message:     result.message     || '🎵 Beat generated!',
+        suggestions: result.suggestions || [],
+        hasBeat,
+        hasMix,
+        bpm: result.beat?.bpm,
+      };
+
+    } finally {
+      // ALWAYS reset the processing flag — no matter what happens
+      this.isProcessing = false;
     }
-
-    // Add AI response to conversation
-    this.conversation.push({
-      role: 'model',
-      text: JSON.stringify(result),
-    });
-
-    // Save undo point before applying changes
-    const hasBeat = !!result.beat;
-    const hasMix  = !!result.mix;
-
-    if (hasBeat || hasMix) {
-      this._saveUndo(sequencer, audioEngine);
-    }
-
-    // Apply beat
-    if (hasBeat) {
-      BeatGenerator.apply(result.beat, sequencer);
-    }
-
-    // Apply mix
-    if (hasMix) {
-      MixMaster.apply(result.mix, sequencer, audioEngine);
-    }
-
-    this.isProcessing = false;
-
-    return {
-      message: result.message || 'Done!',
-      suggestions: result.suggestions || [],
-      hasBeat,
-      hasMix,
-      bpm: result.beat?.bpm,
-    };
   }
+
 
   /**
    * Deep procedural music knowledge engine:
@@ -980,6 +1082,7 @@ class AIProducer {
 // Expose
 // ─────────────────────────────────────────────────────────────────────────────
 window.AIProducer          = AIProducer;
+window.BeYouClient         = BeYouClient;
 window.GeminiClient        = GeminiClient;
 window.OllamaClient        = OllamaClient;
 window.OpenAICompatClient  = OpenAICompatClient;

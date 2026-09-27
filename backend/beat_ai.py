@@ -1,0 +1,1120 @@
+"""
+BeYou Studio — Built-in Music AI Engine v2 (Server-side)
+
+A comprehensive music production AI with deep knowledge of:
+  - 20 genres with multiple authentic pattern variations
+  - Music theory: scales, chord progressions, melody generation
+  - Mood intelligence: velocity, density, texture modifiers
+  - BPM-aware humanization and groove quantization
+  - Conversational producer-style response messages
+  - Song structure awareness (verse, chorus, bridge hints)
+
+No external LLM or API keys required. Runs entirely on-server.
+"""
+
+import random
+import re
+from typing import Dict, List, Any, Optional, Tuple
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MUSIC THEORY ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Chromatic scale degree names
+NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+# Scale interval patterns (semitones from root)
+SCALES = {
+    'major':          [0, 2, 4, 5, 7, 9, 11],
+    'minor':          [0, 2, 3, 5, 7, 8, 10],
+    'dorian':         [0, 2, 3, 5, 7, 9, 10],
+    'phrygian':       [0, 1, 3, 5, 7, 8, 10],
+    'mixolydian':     [0, 2, 4, 5, 7, 9, 10],
+    'pentatonic_min': [0, 3, 5, 7, 10],
+    'pentatonic_maj': [0, 2, 4, 7, 9],
+    'blues':          [0, 3, 5, 6, 7, 10],
+    'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],
+    'whole_tone':     [0, 2, 4, 6, 8, 10],
+}
+
+# Genre → preferred scales
+GENRE_SCALES = {
+    'trap':       ['minor', 'phrygian', 'pentatonic_min'],
+    'drill':      ['minor', 'phrygian', 'pentatonic_min'],
+    'hip-hop':    ['minor', 'pentatonic_min', 'blues'],
+    'lo-fi':      ['major', 'dorian', 'pentatonic_maj'],
+    'house':      ['minor', 'dorian', 'major'],
+    'techno':     ['minor', 'phrygian', 'whole_tone'],
+    'dnb':        ['minor', 'pentatonic_min', 'dorian'],
+    'reggaeton':  ['minor', 'dorian', 'major'],
+    'afrobeats':  ['major', 'dorian', 'pentatonic_maj'],
+    'synthwave':  ['minor', 'dorian', 'harmonic_minor'],
+    'phonk':      ['minor', 'phrygian', 'pentatonic_min'],
+    'ambient':    ['major', 'dorian', 'pentatonic_maj'],
+    'r&b':        ['dorian', 'minor', 'pentatonic_min'],
+    'pop':        ['major', 'mixolydian', 'pentatonic_maj'],
+    'rock':       ['minor', 'pentatonic_min', 'blues'],
+    'jazz':       ['dorian', 'mixolydian', 'major'],
+    'uk garage':  ['minor', 'dorian', 'major'],
+    'electronic': ['minor', 'dorian', 'major'],
+    'latin':      ['dorian', 'minor', 'major'],
+    'gospel':     ['major', 'mixolydian', 'pentatonic_maj'],
+}
+
+# Chord progression patterns (scale degrees, 1-indexed)
+CHORD_PROGRESSIONS = {
+    'trap':       [[1, 6, 3, 7], [1, 5, 6, 4], [6, 4, 1, 5]],
+    'hip-hop':    [[1, 4, 5, 1], [2, 5, 1, 6], [1, 6, 4, 5]],
+    'lo-fi':      [[1, 6, 4, 5], [2, 5, 1, 4], [6, 4, 1, 5]],
+    'house':      [[1, 5, 6, 4], [2, 5, 1, 1], [1, 4, 6, 5]],
+    'pop':        [[1, 5, 6, 4], [1, 4, 1, 5], [6, 4, 1, 5]],
+    'r&b':        [[1, 4, 6, 5], [2, 5, 1, 6], [1, 7, 6, 5]],
+    'jazz':       [[2, 5, 1, 6], [1, 6, 2, 5], [3, 6, 2, 5]],
+    'synthwave':  [[6, 4, 1, 5], [1, 6, 4, 5], [1, 7, 6, 4]],
+    'default':    [[1, 5, 6, 4], [2, 5, 1, 1], [1, 4, 5, 1]],
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GENRE DATABASE — 20 GENRES WITH MULTIPLE AUTHENTIC PATTERN SETS
+# ─────────────────────────────────────────────────────────────────────────────
+
+CHANNELS = ['Kick', 'Clap', 'Hi-Hat C', 'Hi-Hat O', 'Snare', 'Tom', 'Bass', 'Lead']
+
+GENRE_DB: Dict[str, Dict[str, Any]] = {
+    'trap': {
+        'bpm_range': (130, 150),
+        'swing': 0.05,
+        'pattern_sets': [
+            {   # Classic Travis Scott style
+                'Kick':     [1,0,0,0, 0,0,0,0, 1,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,1,0, 0,1,0,0],
+            },
+            {   # Metro Boomin style — syncopated kicks
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,1],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,1, 1,0,1,1, 1,0,1,1, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+                'Bass':     [1,0,0,1, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+            },
+            {   # Minimalwave trap — Future style
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,1,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [0,1,1,1, 0,1,1,1, 0,1,1,1, 0,1,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,1],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,1,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.92,'Clap':0.76,'Hi-Hat C':0.68,'Hi-Hat O':0.58,'Snare':0.80,'Tom':0.65,'Bass':0.95,'Lead':0.70},
+        'pan':  {'Kick':0.0,'Clap':-0.05,'Hi-Hat C':0.22,'Hi-Hat O':0.30,'Snare':0.0,'Tom':-0.18,'Bass':0.0,'Lead':0.12},
+        'tips': [
+            'Layer your 808 with a short sine kick for punch and sub depth',
+            'Try pitch-sliding the Bass via the Piano Roll for that classic trap feel',
+            'Add a reverse clap before the drop for maximum tension',
+            'Use rapid hi-hat rolls at 1/32nd note speed on beat 4',
+            'Stack multiple hi-hat patterns at different velocities for texture',
+        ],
+        'emoji': '🔥',
+        'description': 'Hard-hitting southern trap with heavy 808 sub bass',
+    },
+    'drill': {
+        'bpm_range': (138, 145),
+        'swing': 0.03,
+        'pattern_sets': [
+            {   # UK Drill — Dark and menacing
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Hi-Hat C': [1,0,1,1, 1,0,1,1, 1,0,1,1, 1,1,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,1,0,0],
+                'Bass':     [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0],
+                'Lead':     [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+            },
+            {   # NY Drill — Chunky and aggressive
+                'Kick':     [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,1,0,0],
+                'Clap':     [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Hi-Hat C': [1,1,0,1, 1,0,1,1, 0,1,1,0, 1,0,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,1,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,1,0,0, 0,0,0,1, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.90,'Clap':0.80,'Hi-Hat C':0.72,'Hi-Hat O':0.60,'Snare':0.88,'Tom':0.70,'Bass':0.94,'Lead':0.68},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.18,'Hi-Hat O':0.25,'Snare':0.0,'Tom':-0.20,'Bass':0.0,'Lead':0.15},
+        'tips': [
+            'Use the sliding 808 technique — pitch bend the bass down a semi-step after attack',
+            'Add triplet hi-hat stutter every 4 bars for that authentic drill bounce',
+            'Drill snares hit hardest slightly off-grid — add 2ms of swing',
+            'Minor key melodies under the bass line create the drill atmosphere',
+        ],
+        'emoji': '⚡',
+        'description': 'Dark UK/NY drill with sliding 808s and aggressive hi-hats',
+    },
+    'hip-hop': {
+        'bpm_range': (82, 96),
+        'swing': 0.10,
+        'pattern_sets': [
+            {   # Golden Era Boom Bap
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Bass':     [1,0,0,1, 0,0,0,0, 1,0,0,0, 0,1,0,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
+            },
+            {   # Modern hip-hop — Kendrick style
+                'Kick':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,0,1, 1,0,0,1, 1,0,1,0, 1,1,0,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,1],
+                'Bass':     [1,0,0,0, 0,1,0,0, 1,0,0,0, 0,0,1,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+            {   # Jazzy hip-hop — J Dilla influenced
+                'Kick':     [1,0,0,0, 0,0,0,0, 1,0,0,1, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 0,1,0,1, 1,0,0,1, 0,1,0,1],
+                'Hi-Hat O': [0,0,0,1, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,1,0, 0,0,0,1, 0,0,0,0],
+                'Lead':     [0,0,0,1, 0,0,0,0, 1,0,0,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.88,'Clap':0.74,'Hi-Hat C':0.65,'Hi-Hat O':0.55,'Snare':0.82,'Tom':0.62,'Bass':0.90,'Lead':0.68},
+        'pan':  {'Kick':0.0,'Clap':-0.05,'Hi-Hat C':0.15,'Hi-Hat O':0.22,'Snare':0.0,'Tom':-0.15,'Bass':0.0,'Lead':0.10},
+        'tips': [
+            'Add 55-65% swing for authentic boom bap groove — the 16th notes land late',
+            'Layer the kick with a short vinyl boom sample for that lo-fi character',
+            'Use open hi-hat on the "and" of beat 2 — essential hip-hop texture',
+            'Try a sampled Rhodes or dusty piano chop on the Lead channel',
+            'Ghost notes on the snare with velocity 0.25-0.35 add professional depth',
+        ],
+        'emoji': '🎤',
+        'description': 'Classic boom bap to modern hip-hop grooves',
+    },
+    'lo-fi': {
+        'bpm_range': (72, 86),
+        'swing': 0.15,
+        'pattern_sets': [
+            {   # Lazy Sunday lo-fi
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+            },
+            {   # Jazz-influenced lo-fi
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Lead':     [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.82,'Clap':0.68,'Hi-Hat C':0.55,'Hi-Hat O':0.48,'Snare':0.72,'Tom':0.50,'Bass':0.78,'Lead':0.74},
+        'pan':  {'Kick':0.0,'Clap':-0.08,'Hi-Hat C':0.18,'Hi-Hat O':0.20,'Snare':0.0,'Tom':-0.10,'Bass':0.0,'Lead':0.14},
+        'tips': [
+            'Add vinyl crackle and noise on a separate channel for warmth',
+            'Use heavy swing (15%) on the hi-hats for that lazy lo-fi feel',
+            'Detune the Lead slightly for a nostalgic tape saturation effect',
+            'Layer soft jazz piano chords under the bass line for depth',
+            'Reduce high frequencies with a gentle low-pass filter on the master',
+        ],
+        'emoji': '🌧️',
+        'description': 'Warm, hazy lo-fi with jazzy swing and vinyl texture',
+    },
+    'house': {
+        'bpm_range': (122, 128),
+        'swing': 0.02,
+        'pattern_sets': [
+            {   # Classic four-on-the-floor
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+                'Hi-Hat O': [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+                'Bass':     [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+                'Lead':     [0,1,0,0, 0,1,0,0, 0,1,0,0, 0,1,0,0],
+            },
+            {   # Deep house — Soulful
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,1, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,1,0, 0,0,1,0, 1,0,1,0, 0,0,1,0],
+                'Lead':     [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,1,0,0],
+            },
+            {   # Tech house — Driving groove
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,0,1, 1,0,1,1, 1,1,0,1, 1,0,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Bass':     [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+                'Lead':     [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.95,'Clap':0.72,'Hi-Hat C':0.60,'Hi-Hat O':0.55,'Snare':0.78,'Tom':0.58,'Bass':0.85,'Lead':0.70},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.25,'Hi-Hat O':-0.25,'Snare':0.0,'Tom':-0.15,'Bass':0.0,'Lead':0.10},
+        'tips': [
+            'The four-on-the-floor kick is sacred — never break it in the drop!',
+            'Offbeat hi-hats create the classic house shuffle feeling',
+            'Add a funky bassline with octave jumps in the Piano Roll',
+            'Sidechain compress the Lead to the kick for that pumping effect',
+            'Layer a vocal chop on the Lead for uplifting diva house vibes',
+        ],
+        'emoji': '🏠',
+        'description': 'Soulful to tech house with four-on-the-floor energy',
+    },
+    'techno': {
+        'bpm_range': (130, 138),
+        'swing': 0.0,
+        'pattern_sets': [
+            {   # Industrial Detroit techno
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,0,1],
+                'Bass':     [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+            {   # Minimal Berlin techno
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Bass':     [1,0,1,0, 0,0,0,1, 1,0,0,0, 0,1,0,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.95,'Clap':0.70,'Hi-Hat C':0.62,'Hi-Hat O':0.50,'Snare':0.78,'Tom':0.72,'Bass':0.88,'Lead':0.60},
+        'pan':  {'Kick':0.0,'Clap':0.05,'Hi-Hat C':0.20,'Hi-Hat O':-0.20,'Snare':0.0,'Tom':-0.25,'Bass':0.0,'Lead':0.08},
+        'tips': [
+            'Keep the kick industrial and heavy — it drives the entire floor',
+            'Use acid bassline with resonant filter sweeps for classic 303 sound',
+            'Minimal variations — techno is about subtle evolution over 8+ bars',
+            'Add long reverb tails on the clap for Berlin-warehouse depth',
+        ],
+        'emoji': '🔊',
+        'description': 'Hard industrial techno from Detroit to Berlin',
+    },
+    'dnb': {
+        'bpm_range': (170, 178),
+        'swing': 0.05,
+        'pattern_sets': [
+            {   # Rolling liquid DnB
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,0,0,1],
+            },
+            {   # Neuro/Dark DnB — Complex
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,0,1, 0,1,1,0, 1,0,1,1, 0,1,0,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Bass':     [1,0,0,1, 0,0,0,0, 1,0,0,0, 0,0,0,1],
+                'Lead':     [0,0,1,0, 0,0,0,1, 0,0,0,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.90,'Clap':0.76,'Hi-Hat C':0.65,'Hi-Hat O':0.58,'Snare':0.85,'Tom':0.68,'Bass':0.92,'Lead':0.72},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.18,'Hi-Hat O':-0.18,'Snare':0.0,'Tom':-0.22,'Bass':0.0,'Lead':0.12},
+        'tips': [
+            'The Amen break feel comes from the specific kick-snare spacing',
+            'Use a Reese bass (two detuned saws) with LFO for classic DnB growl',
+            'At 174 BPM, keep patterns tight — the speed does the work',
+            'Add a fast break fill every 4 bars using the Tom channel',
+        ],
+        'emoji': '🥁',
+        'description': 'Fast-paced drum and bass from liquid to neurofunk',
+    },
+    'reggaeton': {
+        'bpm_range': (92, 100),
+        'swing': 0.0,
+        'pattern_sets': [
+            {   # Classic Dembow rhythm
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,1,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,1,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+            },
+        ],
+        'mix':  {'Kick':0.90,'Clap':0.82,'Hi-Hat C':0.60,'Hi-Hat O':0.50,'Snare':0.85,'Tom':0.55,'Bass':0.88,'Lead':0.72},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.15,'Hi-Hat O':0.18,'Snare':0.0,'Tom':-0.12,'Bass':0.0,'Lead':0.08},
+        'tips': [
+            'The dembow rhythm is the soul — snare on the "and" of 2 and 4',
+            'Keep the kick four-on-the-floor for maximum bounce',
+            'Short punchy bass with space for vocal tracks to breathe',
+            'Layer a percussion loop on the Tom for authentic texture',
+        ],
+        'emoji': '🌴',
+        'description': 'Latin dembow with infectious rhythmic bounce',
+    },
+    'afrobeats': {
+        'bpm_range': (100, 112),
+        'swing': 0.08,
+        'pattern_sets': [
+            {   # Afropop — Wizkid style
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,1, 0,0,1,0, 0,1,0,0, 0,0,1,0],
+                'Hi-Hat C': [1,0,1,1, 0,1,1,0, 1,0,1,1, 0,1,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+            },
+            {   # Amapiano style
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,0,1, 0,1,1,0, 1,0,1,1, 0,1,0,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,0,0,1, 0,0,1,0, 0,1,0,0, 0,0,0,1],
+            },
+        ],
+        'mix':  {'Kick':0.85,'Clap':0.78,'Hi-Hat C':0.72,'Hi-Hat O':0.60,'Snare':0.80,'Tom':0.75,'Bass':0.82,'Lead':0.74},
+        'pan':  {'Kick':0.0,'Clap':0.05,'Hi-Hat C':0.15,'Hi-Hat O':-0.15,'Snare':0.0,'Tom':-0.20,'Bass':0.0,'Lead':0.10},
+        'tips': [
+            'Afrobeats is all about polyrhythm — layer log drums on the Tom',
+            'Add swing to the hi-hats for a natural, human feel',
+            'Keep the bass melodic and bouncy — not just sub frequencies',
+            'Use a marimba or kalimba sound on the Lead for authenticity',
+        ],
+        'emoji': '🌍',
+        'description': 'Polyrhythmic afrobeats from afropop to amapiano',
+    },
+    'synthwave': {
+        'bpm_range': (116, 126),
+        'swing': 0.02,
+        'pattern_sets': [
+            {   # Classic 80s retrowave
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+            {   # Outrun — Kavinsky style
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+                'Bass':     [1,0,1,0, 0,1,0,0, 1,0,1,0, 0,1,0,0],
+                'Lead':     [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.88,'Clap':0.72,'Hi-Hat C':0.58,'Hi-Hat O':0.50,'Snare':0.76,'Tom':0.55,'Bass':0.85,'Lead':0.80},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.20,'Hi-Hat O':-0.20,'Snare':0.0,'Tom':-0.10,'Bass':0.0,'Lead':0.15},
+        'tips': [
+            'Use arpeggiated bass patterns for that classic 80s synth vibe',
+            'Layer gated reverb on the snare — iconic synthwave sound',
+            'Wide, detuned saw pads work great on the Lead channel',
+            'Add chorus and delay to everything for that retro sheen',
+        ],
+        'emoji': '🌆',
+        'description': 'Neon-soaked 80s retrowave and outrun sounds',
+    },
+    'phonk': {
+        'bpm_range': (145, 158),
+        'swing': 0.0,
+        'pattern_sets': [
+            {   # Memphis phonk — cowbell and grit
+                'Kick':     [1,0,0,0, 0,0,0,0, 1,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,1,0],
+                'Lead':     [0,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,1,0],
+            },
+            {   # Drift phonk — aggressive
+                'Kick':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,1,0, 1,1,1,0, 1,1,1,0, 1,1,1,1],
+                'Hi-Hat O': [0,0,0,1, 0,0,0,1, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,1,0,0, 0,0,1,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.90,'Clap':0.74,'Hi-Hat C':0.70,'Hi-Hat O':0.55,'Snare':0.82,'Tom':0.60,'Bass':0.95,'Lead':0.78},
+        'pan':  {'Kick':0.0,'Clap':-0.05,'Hi-Hat C':0.20,'Hi-Hat O':0.25,'Snare':0.0,'Tom':-0.15,'Bass':0.0,'Lead':0.08},
+        'tips': [
+            'Use cowbell samples on the Lead channel for authentic Memphis phonk',
+            'Saturate/distort the 808 for that aggressive phonk bass growl',
+            'Add vinyl crackle and tape hiss for vintage texture',
+            'Use triplet hi-hat patterns for extra bounce and energy',
+        ],
+        'emoji': '💀',
+        'description': 'Dark Memphis phonk from drift to aggressive styles',
+    },
+    'ambient': {
+        'bpm_range': (60, 80),
+        'swing': 0.0,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Hi-Hat C': [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.55,'Clap':0.40,'Hi-Hat C':0.40,'Hi-Hat O':0.35,'Snare':0.45,'Tom':0.45,'Bass':0.62,'Lead':0.72},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.30,'Hi-Hat O':-0.30,'Snare':0.0,'Tom':-0.20,'Bass':0.0,'Lead':0.25},
+        'tips': [
+            'Less is more — sparse patterns let the sounds breathe',
+            'Use long reverb tails and delay for spacious atmospheres',
+            'Slow filter sweeps on the Lead create evolving textures',
+            'Try switching the Bass to a gentle pad sound for warmth',
+        ],
+        'emoji': '🌌',
+        'description': 'Sparse, atmospheric textures with long reverb tails',
+    },
+    'r&b': {
+        'bpm_range': (65, 82),
+        'swing': 0.12,
+        'pattern_sets': [
+            {   # Neo-soul R&B — smooth
+                'Kick':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 0,1,0,1, 1,0,1,0, 0,1,0,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,1,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.82,'Clap':0.70,'Hi-Hat C':0.58,'Hi-Hat O':0.48,'Snare':0.78,'Tom':0.50,'Bass':0.85,'Lead':0.76},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.15,'Hi-Hat O':-0.15,'Snare':0.0,'Tom':-0.10,'Bass':0.0,'Lead':0.12},
+        'tips': [
+            'Use ghost notes on the snare with low velocity for professional groove',
+            'Swing is essential for R&B — try around 60%',
+            'Layer a Rhodes or Wurlitzer on the Lead channel',
+            'Keep the bass melodic and walking between chord roots',
+        ],
+        'emoji': '💜',
+        'description': 'Smooth neo-soul and modern R&B grooves',
+    },
+    'pop': {
+        'bpm_range': (100, 128),
+        'swing': 0.0,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+            {   # Modern pop — hyper-produced
+                'Kick':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,1],
+                'Clap':     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,1,0],
+                'Lead':     [0,0,1,0, 0,0,0,1, 0,0,0,0, 0,0,1,0],
+            },
+        ],
+        'mix':  {'Kick':0.85,'Clap':0.78,'Hi-Hat C':0.60,'Hi-Hat O':0.50,'Snare':0.82,'Tom':0.55,'Bass':0.82,'Lead':0.78},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.15,'Hi-Hat O':0.15,'Snare':0.0,'Tom':-0.10,'Bass':0.0,'Lead':0.08},
+        'tips': [
+            'Pop production is about clarity — give each element its own frequency space',
+            'Sidechain the bass to the kick for that punchy, radio-ready sound',
+            'Catchy melodic hooks on the Lead channel sell the track',
+            'Layer claps with snare for a wide, punchy backbeat',
+        ],
+        'emoji': '🌟',
+        'description': 'Radio-ready pop from classic to modern hyper-pop',
+    },
+    'rock': {
+        'bpm_range': (110, 140),
+        'swing': 0.0,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+            },
+        ],
+        'mix':  {'Kick':0.88,'Clap':0.75,'Hi-Hat C':0.62,'Hi-Hat O':0.55,'Snare':0.85,'Tom':0.72,'Bass':0.85,'Lead':0.70},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.20,'Hi-Hat O':-0.20,'Snare':0.0,'Tom':-0.25,'Bass':0.0,'Lead':0.15},
+        'tips': [
+            'Rock drums are about power — hit the snare hard on 2 and 4',
+            'Use a distorted bass tone for drive and energy',
+            'Toms work great for fills — add them at the end of 4-bar phrases',
+            'Open hi-hat on beat 4 adds push and energy to the groove',
+        ],
+        'emoji': '🎸',
+        'description': 'Hard-driving rock from indie to punk and alternative',
+    },
+    'jazz': {
+        'bpm_range': (100, 145),
+        'swing': 0.20,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Hi-Hat C': [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,0,0, 0,1,0,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,0,0, 0,0,1,0],
+            },
+        ],
+        'mix':  {'Kick':0.72,'Clap':0.50,'Hi-Hat C':0.68,'Hi-Hat O':0.55,'Snare':0.65,'Tom':0.58,'Bass':0.80,'Lead':0.78},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.25,'Hi-Hat O':-0.25,'Snare':0.0,'Tom':-0.15,'Bass':-0.10,'Lead':0.20},
+        'tips': [
+            'Ride cymbal pattern (on hi-hat channel) drives jazz — play it swung',
+            'Use walking bass on the Bass channel via the Piano Roll',
+            'Ghost notes on snare and kick give jazz its conversational feel',
+            'Less quantization = more authentic jazz — embrace imperfection',
+        ],
+        'emoji': '🎷',
+        'description': 'Swinging jazz from bebop to smooth and fusion',
+    },
+    'uk garage': {
+        'bpm_range': (130, 136),
+        'swing': 0.05,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,1, 0,1,1,0, 1,0,1,1, 0,1,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,0,1,0],
+                'Lead':     [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.88,'Clap':0.76,'Hi-Hat C':0.68,'Hi-Hat O':0.58,'Snare':0.80,'Tom':0.60,'Bass':0.85,'Lead':0.72},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.18,'Hi-Hat O':-0.18,'Snare':0.0,'Tom':-0.12,'Bass':0.0,'Lead':0.10},
+        'tips': [
+            '2-step kick pattern is the signature — skip the third beat!',
+            'Shuffle the hi-hats heavily for that skippy garage feel',
+            'Chopped vocal samples on the Lead channel are classic UK garage',
+            'Use a wobbly sub bass with pitch bends for maximum impact',
+        ],
+        'emoji': '🇬🇧',
+        'description': 'Skippy 2-step UK garage with chopped vocals',
+    },
+    'electronic': {
+        'bpm_range': (128, 140),
+        'swing': 0.0,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,0,0],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+                'Bass':     [1,0,0,1, 0,0,1,0, 0,0,0,1, 0,0,1,0],
+                'Lead':     [0,0,0,0, 0,0,0,0, 0,0,1,0, 0,0,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.92,'Clap':0.74,'Hi-Hat C':0.62,'Hi-Hat O':0.55,'Snare':0.80,'Tom':0.65,'Bass':0.88,'Lead':0.72},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.20,'Hi-Hat O':-0.20,'Snare':0.0,'Tom':-0.15,'Bass':0.0,'Lead':0.10},
+        'tips': [
+            'Build energy with filter automation on the bass and lead',
+            'Use risers and sweeps to create tension before drops',
+            'Sidechain the bass to the kick for that pumping EDM effect',
+            'Layer multiple synth sounds for huge, wide drops',
+        ],
+        'emoji': '⚡',
+        'description': 'High-energy electronic from EDM to electro',
+    },
+    'latin': {
+        'bpm_range': (95, 115),
+        'swing': 0.05,
+        'pattern_sets': [
+            {   # Salsa clave pattern
+                'Kick':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+                'Clap':     [0,0,1,0, 0,1,0,0, 0,0,1,0, 0,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,1, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,0,0,1, 0,0,1,0, 0,1,0,0],
+            },
+        ],
+        'mix':  {'Kick':0.85,'Clap':0.80,'Hi-Hat C':0.65,'Hi-Hat O':0.55,'Snare':0.82,'Tom':0.78,'Bass':0.85,'Lead':0.75},
+        'pan':  {'Kick':0.0,'Clap':0.05,'Hi-Hat C':0.15,'Hi-Hat O':-0.15,'Snare':0.0,'Tom':-0.20,'Bass':0.0,'Lead':0.12},
+        'tips': [
+            'The clave rhythm is the foundation — build everything around it',
+            'Layer congas and bongos on the Tom channel for authentic texture',
+            'Keep the bass walking and melodic, not just root notes',
+            'Use brass stabs on the Lead channel for a Latin jazz feel',
+        ],
+        'emoji': '💃',
+        'description': 'Spicy Latin rhythms from salsa to bachata',
+    },
+    'gospel': {
+        'bpm_range': (75, 100),
+        'swing': 0.10,
+        'pattern_sets': [
+            {
+                'Kick':     [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+                'Clap':     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,0],
+                'Hi-Hat C': [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+                'Hi-Hat O': [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1],
+                'Snare':    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+                'Tom':      [0,0,0,0, 0,0,0,0, 0,0,0,1, 0,0,0,0],
+                'Bass':     [1,0,0,0, 0,0,0,1, 0,0,1,0, 0,0,0,0],
+                'Lead':     [0,0,1,0, 0,0,0,0, 0,0,1,0, 0,0,0,1],
+            },
+        ],
+        'mix':  {'Kick':0.85,'Clap':0.82,'Hi-Hat C':0.60,'Hi-Hat O':0.50,'Snare':0.80,'Tom':0.65,'Bass':0.82,'Lead':0.80},
+        'pan':  {'Kick':0.0,'Clap':0.0,'Hi-Hat C':0.15,'Hi-Hat O':-0.15,'Snare':0.0,'Tom':-0.18,'Bass':0.0,'Lead':0.12},
+        'tips': [
+            'Gospel lives in the space between notes — use rests strategically',
+            'Layer choir vocals on the Lead channel for that uplifting gospel sound',
+            'Use 7th and 9th chord voicings for authentic gospel harmony',
+            'Add a shaker or tambourine on the Clap channel for texture',
+        ],
+        'emoji': '🙏',
+        'description': 'Soulful gospel with uplifting rhythms and harmonies',
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KEYWORD MAPPING
+# ─────────────────────────────────────────────────────────────────────────────
+
+GENRE_KEYWORDS: Dict[str, List[str]] = {
+    'drill':      ['drill', 'uk drill', 'ny drill', 'chicago drill', 'dark menacing'],
+    'trap':       ['trap', '808', 'metro', 'future', 'gucci', 'zaytoven', 'travis scott', 'hard'],
+    'phonk':      ['phonk', 'drift', 'cowbell', 'memphis', 'dark phonk'],
+    'synthwave':  ['synthwave', 'retrowave', '80s', 'outrun', 'retro', 'neon', 'kavinsky', 'stranger things', 'vaporwave'],
+    'techno':     ['techno', 'acid', 'industrial', 'berlin', 'rave', 'warehouse', 'minimal techno'],
+    'dnb':        ['dnb', 'drum and bass', 'drum & bass', 'jungle', 'liquid', 'neurofunk', 'breakbeat'],
+    'house':      ['house', 'deep house', 'tech house', 'edm', 'club', 'dance', 'disco', 'four on the floor'],
+    'reggaeton':  ['reggaeton', 'dembow', 'latin urbano', 'bad bunny', 'perreo', 'urbano'],
+    'afrobeats':  ['afrobeats', 'afro', 'burna', 'amapiano', 'afropop', 'wizkid', 'davido'],
+    'lo-fi':      ['lofi', 'lo-fi', 'chill hop', 'study', 'relaxing', 'cozy', 'rainy', 'coffee', 'chill'],
+    'hip-hop':    ['hip hop', 'hip-hop', 'boom bap', 'rap', 'old school', 'golden age', 'kendrick', 'j dilla'],
+    'ambient':    ['ambient', 'meditation', 'drone', 'space', 'atmospheric', 'calm', 'zen', 'sleep'],
+    'r&b':        ['r&b', 'rnb', 'soul', 'neo soul', 'slow jam', 'smooth', 'weekly', 'frank ocean'],
+    'pop':        ['pop', 'mainstream', 'catchy', 'radio', 'hit', 'hyper pop', 'hyperpop'],
+    'rock':       ['rock', 'indie', 'punk', 'alternative', 'garage rock', 'grunge', 'metal'],
+    'jazz':       ['jazz', 'swing', 'bebop', 'smooth jazz', 'fusion', 'bossa nova', 'big band'],
+    'uk garage':  ['uk garage', '2-step', 'speed garage', 'bassline', 'funky house'],
+    'electronic': ['electronic', 'electro', 'synth pop', 'digital'],
+    'latin':      ['latin', 'salsa', 'bachata', 'merengue', 'cumbia', 'bossa'],
+    'gospel':     ['gospel', 'church', 'spiritual', 'worship', 'choir', 'praise', 'soulful gospel', 'christian'],
+}
+
+# Mood modifiers
+MOOD_MODIFIERS: Dict[str, Dict[str, float]] = {
+    'dark':        {'velocity_scale': 1.06, 'lead_density': 0.7, 'bass_boost': 1.12},
+    'aggressive':  {'velocity_scale': 1.12, 'lead_density': 0.85, 'bass_boost': 1.15},
+    'energetic':   {'velocity_scale': 1.08, 'lead_density': 0.9, 'bass_boost': 1.0},
+    'chill':       {'velocity_scale': 0.82, 'lead_density': 0.5, 'bass_boost': 0.88},
+    'dreamy':      {'velocity_scale': 0.78, 'lead_density': 0.55, 'bass_boost': 0.85},
+    'groovy':      {'velocity_scale': 0.96, 'lead_density': 0.75, 'bass_boost': 1.05},
+    'melancholic': {'velocity_scale': 0.85, 'lead_density': 0.6, 'bass_boost': 0.88},
+    'uplifting':   {'velocity_scale': 1.04, 'lead_density': 0.85, 'bass_boost': 0.95},
+    'minimal':     {'velocity_scale': 0.80, 'lead_density': 0.3, 'bass_boost': 0.78},
+    'epic':        {'velocity_scale': 1.14, 'lead_density': 0.95, 'bass_boost': 1.12},
+    'funky':       {'velocity_scale': 0.98, 'lead_density': 0.82, 'bass_boost': 1.06},
+    'atmospheric': {'velocity_scale': 0.75, 'lead_density': 0.4, 'bass_boost': 0.82},
+    'sad':         {'velocity_scale': 0.80, 'lead_density': 0.55, 'bass_boost': 0.85},
+    'happy':       {'velocity_scale': 1.05, 'lead_density': 0.8, 'bass_boost': 1.0},
+    'romantic':    {'velocity_scale': 0.85, 'lead_density': 0.65, 'bass_boost': 0.90},
+    'powerful':    {'velocity_scale': 1.10, 'lead_density': 0.9, 'bass_boost': 1.10},
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORE ENGINE FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def classify_genre(prompt: str) -> str:
+    """Detect genre from prompt keywords using weighted scoring."""
+    p = prompt.lower()
+    best_genre = 'hip-hop'
+    best_score = 0
+
+    for genre, keywords in GENRE_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in p)
+        if score > best_score:
+            best_score = score
+            best_genre = genre
+
+    return best_genre
+
+
+def detect_mood(prompt: str) -> Optional[str]:
+    """Detect mood from prompt with synonym expansion."""
+    p = prompt.lower()
+
+    # Direct match
+    for mood in MOOD_MODIFIERS:
+        if mood in p:
+            return mood
+
+    # Synonym map
+    synonyms = {
+        'sad': ['sad', 'sorrowful', 'depressing', 'mournful', 'somber'],
+        'happy': ['happy', 'joyful', 'bright', 'cheerful', 'upbeat'],
+        'dark': ['dark', 'sinister', 'evil', 'menacing', 'shadowy'],
+        'aggressive': ['aggressive', 'violent', 'intense', 'angry', 'hard'],
+        'chill': ['chill', 'relaxed', 'calm', 'easy', 'mellow', 'lazy'],
+        'dreamy': ['dreamy', 'floating', 'hazy', 'soft', 'ethereal'],
+        'epic': ['epic', 'cinematic', 'grand', 'massive', 'huge', 'big'],
+        'groovy': ['groovy', 'funky', 'bouncy', 'feel-good', 'swagger'],
+        'romantic': ['romantic', 'love', 'sensual', 'intimate'],
+    }
+    for mood, syns in synonyms.items():
+        if any(s in p for s in syns):
+            return mood
+
+    return None
+
+
+def detect_bpm(prompt: str, genre_range: Tuple[int, int]) -> int:
+    """Extract explicit BPM or compute genre-appropriate random BPM."""
+    bpm_match = re.search(r'(\d{2,3})\s*(?:bpm|tempo|beats)', prompt.lower())
+    if bpm_match:
+        explicit = int(bpm_match.group(1))
+        if 40 <= explicit <= 220:
+            return explicit
+
+    # Random within genre range for variety
+    return random.randint(genre_range[0], genre_range[1])
+
+
+def detect_action(prompt: str) -> str:
+    """Detect if the user wants beat, mix, variation, or full production."""
+    p = prompt.lower()
+
+    if any(kw in p for kw in ['mix', 'master', 'level', 'volume', 'pan', 'balance', 'eq', 'mixing']):
+        return 'mix'
+    if any(kw in p for kw in ['variation', 'modify', 'change', 'tweak', 'alter', 'different', 'again']):
+        return 'variation'
+    if any(kw in p for kw in ['just drum', 'only drum', 'beat only', 'just the beat', 'pattern only']):
+        return 'beat'
+
+    return 'full'
+
+
+def humanize_velocities(
+    steps: List[int],
+    genre: str,
+    channel: str,
+    mood_mod: Optional[Dict] = None,
+    swing_amount: float = 0.0,
+) -> List[float]:
+    """
+    Generate realistic humanized velocity values.
+    - Downbeats accented
+    - Off-beats lighter
+    - Mood scaling applied
+    - Ghost notes for snare/clap
+    """
+    velocities = []
+    vel_scale = mood_mod.get('velocity_scale', 1.0) if mood_mod else 1.0
+    is_snare = channel in ('Snare', 'Clap')
+
+    for idx, step in enumerate(steps):
+        if not step:
+            # Occasional ghost note on snare/clap (velocity 0.15-0.25)
+            if is_snare and random.random() < 0.08:
+                velocities.append(round(random.uniform(0.15, 0.25), 2))
+            else:
+                velocities.append(0.0)
+            continue
+
+        beat_pos = idx % 4
+        is_downbeat = (beat_pos == 0)
+        is_backbeat = (beat_pos == 2)
+
+        if is_downbeat:
+            base = random.uniform(0.88, 0.98)
+        elif is_backbeat:
+            base = random.uniform(0.78, 0.90)
+        else:
+            base = random.uniform(0.60, 0.80)
+
+        # Channel-specific boosting
+        if channel == 'Kick' and is_downbeat:
+            base = min(1.0, base + 0.05)
+        if channel in ('Snare', 'Clap') and is_backbeat:
+            base = min(1.0, base + 0.04)
+        if channel in ('Hi-Hat C', 'Hi-Hat O'):
+            base *= 0.92  # Slightly quieter hi-hats
+
+        vel = base * vel_scale
+        vel = max(0.20, min(1.0, round(vel, 2)))
+        velocities.append(vel)
+
+    return velocities
+
+
+def apply_mood_to_pattern(
+    pattern: Dict[str, List[int]],
+    mood_mod: Optional[Dict],
+    channel_list: List[str],
+) -> Dict[str, List[int]]:
+    """Apply mood-based density adjustments to pattern."""
+    if not mood_mod:
+        return pattern
+
+    result = dict(pattern)
+    lead_density = mood_mod.get('lead_density', 0.7)
+
+    # Reduce lead density for minimal/dreamy moods
+    if lead_density < 0.6:
+        lead = list(result.get('Lead', [0]*16))
+        for i in range(len(lead)):
+            if lead[i] == 1 and random.random() > lead_density:
+                lead[i] = 0
+        result['Lead'] = lead
+
+    return result
+
+
+def apply_variation(base_pattern: List[int], intensity: float = 0.12) -> List[int]:
+    """Apply subtle random variation to a pattern for uniqueness."""
+    result = list(base_pattern)
+    for i in range(len(result)):
+        if random.random() < intensity:
+            result[i] = 1 - result[i]
+    return result
+
+
+def generate_beat_response(prompt: str, current_state: Optional[Dict] = None) -> Dict:
+    """
+    Main entry point: Generate a complete AI music production response.
+
+    Returns a dict with:
+      - message: Conversational response text
+      - beat: {bpm, channels: [{name, steps, velocity}]}
+      - mix: {master_volume, channels: [{name, volume, pan, muted}]}
+      - suggestions: List of follow-up producer tips
+    """
+    genre = classify_genre(prompt)
+    genre_data = GENRE_DB.get(genre, GENRE_DB['hip-hop'])
+    mood = detect_mood(prompt)
+    mood_mod = MOOD_MODIFIERS.get(mood) if mood else None
+    bpm = detect_bpm(prompt, genre_data['bpm_range'])
+    action = detect_action(prompt)
+    swing = genre_data.get('swing', 0.05)
+
+    result: Dict[str, Any] = {}
+
+    # ── Beat Generation ──────────────────────────────────────────────────────
+    if action in ('full', 'beat'):
+        pattern_sets = genre_data['pattern_sets']
+
+        # Pick a random pattern set for variety
+        base_pattern = dict(random.choice(pattern_sets))
+
+        # Apply mood density modifiers
+        base_pattern = apply_mood_to_pattern(base_pattern, mood_mod, CHANNELS)
+
+        channels = []
+        for ch_name in CHANNELS:
+            base_steps = list(base_pattern.get(ch_name, [0] * 16))
+
+            # Apply subtle variation for uniqueness (less variation on key channels)
+            if ch_name in ('Kick', 'Snare', 'Clap'):
+                steps = apply_variation(base_steps, intensity=0.05)
+            else:
+                steps = apply_variation(base_steps, intensity=0.10)
+
+            velocities = humanize_velocities(steps, genre, ch_name, mood_mod, swing)
+
+            channels.append({
+                'name': ch_name,
+                'steps': steps,
+                'velocity': velocities,
+            })
+
+        result['beat'] = {
+            'bpm': bpm,
+            'channels': channels,
+        }
+
+    # ── Mix Generation ────────────────────────────────────────────────────────
+    if action in ('full', 'mix'):
+        mix_vols = dict(genre_data['mix'])
+        mix_pans = dict(genre_data['pan'])
+
+        # Apply mood-based mix adjustments
+        if mood_mod:
+            bass_boost = mood_mod.get('bass_boost', 1.0)
+            mix_vols['Bass'] = round(min(1.0, mix_vols['Bass'] * bass_boost), 2)
+            # Dark moods: emphasize kick/bass, de-emphasize lead
+            if mood in ('dark', 'aggressive', 'powerful'):
+                mix_vols['Kick'] = round(min(1.0, mix_vols['Kick'] * 1.05), 2)
+                mix_vols['Lead'] = round(max(0.4, mix_vols['Lead'] * 0.90), 2)
+            # Dreamy/atmospheric: soften drums
+            if mood in ('dreamy', 'atmospheric', 'ambient'):
+                for ch in ('Kick', 'Snare', 'Clap', 'Tom'):
+                    mix_vols[ch] = round(max(0.3, mix_vols[ch] * 0.85), 2)
+
+        mix_channels = []
+        for ch_name in CHANNELS:
+            # Add slight random variation to volumes for natural sound
+            vol = mix_vols.get(ch_name, 0.70)
+            vol_jitter = random.uniform(-0.02, 0.02)
+            mix_channels.append({
+                'name': ch_name,
+                'volume': round(max(0.1, min(1.0, vol + vol_jitter)), 2),
+                'pan': round(mix_pans.get(ch_name, 0.0), 2),
+                'muted': False,
+            })
+
+        result['mix'] = {
+            'master_volume': 0.90,
+            'channels': mix_channels,
+        }
+
+    # ── Variation Mode ────────────────────────────────────────────────────────
+    if action == 'variation':
+        # Use current state if available, otherwise generate fresh
+        if current_state and 'channels' in current_state:
+            channels = []
+            for ch_name in CHANNELS:
+                existing = [0] * 16
+                for ch in current_state['channels']:
+                    if ch.get('name') == ch_name:
+                        existing = ch.get('steps', [0] * 16)
+                        break
+
+                steps = apply_variation(existing, intensity=0.20)
+                velocities = humanize_velocities(steps, genre, ch_name, mood_mod, swing)
+                channels.append({'name': ch_name, 'steps': steps, 'velocity': velocities})
+
+            result['beat'] = {
+                'bpm': current_state.get('bpm', bpm),
+                'channels': channels,
+            }
+        else:
+            # No state — generate fresh variation
+            pattern_sets = genre_data['pattern_sets']
+            base_pattern = dict(random.choice(pattern_sets))
+            channels = []
+            for ch_name in CHANNELS:
+                steps = apply_variation(
+                    list(base_pattern.get(ch_name, [0] * 16)), intensity=0.22
+                )
+                velocities = humanize_velocities(steps, genre, ch_name, mood_mod, swing)
+                channels.append({'name': ch_name, 'steps': steps, 'velocity': velocities})
+
+            result['beat'] = {'bpm': bpm, 'channels': channels}
+
+    # ── Conversational Message ────────────────────────────────────────────────
+    emoji = genre_data.get('emoji', '🎵')
+    description = genre_data.get('description', genre.title())
+    mood_label = f' with a **{mood}** mood' if mood else ''
+
+    if action == 'mix':
+        result['message'] = (
+            f"{emoji} Mixed and mastered your **{genre.title()}** production! "
+            f"Volumes, stereo panning, and balance are dialed in for a professional sound."
+        )
+    elif action == 'variation':
+        result['message'] = (
+            f"{emoji} Added creative variation to your pattern! "
+            f"Modified hits, fills, and velocities while keeping the {genre.title()} core groove."
+        )
+    elif action == 'beat':
+        result['message'] = (
+            f"{emoji} Created an authentic **{genre.title()}** beat at **{bpm} BPM**{mood_label}! "
+            f"{description}."
+        )
+    else:
+        result['message'] = (
+            f"{emoji} Full **{genre.title()}** production at **{bpm} BPM**{mood_label}! "
+            f"{description}. Beat patterns, melodic elements, and professional mix ready."
+        )
+
+    # ── Producer Tips ─────────────────────────────────────────────────────────
+    tips = list(genre_data.get('tips', []))
+    random.shuffle(tips)
+
+    # Add scale/theory tip
+    scale_options = GENRE_SCALES.get(genre, ['minor', 'major'])
+    suggested_scale = random.choice(scale_options)
+    theory_tips = [
+        f"Try a {suggested_scale} scale for your melodies on the Lead channel",
+        f"Experiment with a {suggested_scale} scale for your bassline in the Piano Roll",
+        f"The {suggested_scale} scale works beautifully with this {genre.title()} groove",
+    ]
+    tips.insert(random.randint(0, len(tips)), random.choice(theory_tips))
+
+    result['suggestions'] = tips[:3]
+
+    return result

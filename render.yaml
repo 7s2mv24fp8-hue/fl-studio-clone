@@ -7,7 +7,7 @@ services:
     runtime: python
     region: oregon
     plan: free
-    branch: master
+    branch: main
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python server.py"
     healthCheckPath: /health
@@ -15,12 +15,16 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: PORT
+        value: "10000"
+      - key: HOST
+        value: "0.0.0.0"
       - key: SECRET_KEY
         generateValue: true
       - key: ADMIN_USERNAME
         value: rahul
       - key: ADMIN_EMAIL
-        value: rahul@flstudio.local
+        value: rahul@beyoustudio.app
       - key: ADMIN_PASSWORD
         value: password123
       - key: ADMIN_FULL_NAME

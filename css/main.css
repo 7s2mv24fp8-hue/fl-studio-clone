@@ -2205,6 +2205,24 @@ canvas { display: block; }
   display: block;
 }
 
+/* BeYou AI Built-in Info */
+.ai-beyou-info {
+  padding: 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(168, 85, 247, 0.08) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+.ai-beyou-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
 /* Config Grid */
 .ai-config-grid {
   display: grid;

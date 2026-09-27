@@ -27,6 +27,7 @@ Implements 20-point enterprise security controls:
 import os
 import io
 import re
+import json
 import time
 import math
 import struct
@@ -75,6 +76,7 @@ from backend.auth import (
     verify_not_bot,
     validate_password_strength,
 )
+from backend.beat_ai import generate_beat_response
 
 SERVER_START_TIME = time.time()
 
@@ -128,6 +130,12 @@ class UserCreateAdminRequest(BaseModel):
 class UserRoleUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role: str = Field(..., pattern=r"^(admin|user)$")
+
+
+class AIProduceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(..., min_length=1, max_length=1000)
+    current_state: Optional[dict] = None
 
 
 class GenerateMusicRequest(BaseModel):
@@ -633,6 +641,23 @@ def music_generate(req: GenerateMusicRequest):
     # Algorithmic fallback
     wav_bytes = generate_synthesized_wav(req.prompt, req.duration)
     return Response(content=wav_bytes, media_type="audio/wav")
+
+
+
+@app.post("/api/ai/produce")
+def ai_produce(req: AIProduceRequest):
+    """
+    BeYou Built-in Music AI — generates beat patterns, mix settings, and
+    producer-style responses from natural language prompts.
+    No external LLM or API keys required.
+    """
+    print(f"[*] AI Produce request: '{req.prompt[:80]}'")
+    try:
+        result = generate_beat_response(req.prompt, current_state=req.current_state)
+        return result
+    except Exception as err:
+        print(f"[!] AI Produce error: {err}")
+        raise HTTPException(status_code=500, detail=f"Music AI error: {str(err)}")
 
 
 # ── Static Files & DAW Frontend Mount ─────────────────────────────────────────

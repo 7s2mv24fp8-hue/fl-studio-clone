@@ -1333,7 +1333,8 @@ class FLStudioApp {
       const has = this.aiProducer.hasActiveConnection();
 
       if (providerBadge) {
-        if (provider === 'ollama') providerBadge.textContent = 'Ollama';
+        if (provider === 'beyou') providerBadge.textContent = 'BeYou AI';
+        else if (provider === 'ollama') providerBadge.textContent = 'Ollama';
         else if (provider === 'local-openai') providerBadge.textContent = 'Local LM';
         else providerBadge.textContent = 'Gemini';
       }
@@ -1346,7 +1347,7 @@ class FLStudioApp {
         keyToggle.classList.toggle('has-key', has);
       }
       if (sendBtn) {
-        sendBtn.disabled = !has;
+        sendBtn.disabled = false;  // BeYou AI is always available
       }
 
       // Sync active tab
@@ -1637,12 +1638,6 @@ class FLStudioApp {
     const sendMessage = async () => {
       const text = inputEl?.value.trim();
       if (!text || this.aiProducer.isProcessing) return;
-      if (!this.aiProducer.hasActiveConnection()) {
-        const providerName = this.aiProducer.getProvider() === 'gemini' ? 'Gemini API key' : 'model settings';
-        showToast(`Please configure your ${providerName} first ⚙️`);
-        keyPanel?.classList.remove('hidden');
-        return;
-      }
 
       // Show user message
       addAIMsg('user', text, {});
@@ -1656,9 +1651,16 @@ class FLStudioApp {
         if (!this.audioEngine.initialized) this.audioEngine.init();
         const result = await this.aiProducer.produce(text, this.sequencer, this.audioEngine, {
           onStatus: (status) => {
-            const msgs = { thinking: 'AI is thinking...', done: 'Done!', error: 'Error', cancelled: 'Cancelled' };
+            const msgs = {
+              thinking:   '🧠 AI is thinking...',
+              composing:  '🎵 BeYou AI is composing...',
+              generating: '🎶 Generating your beat...',
+              done:       '✅ Done!',
+              error:      '❌ Error',
+              cancelled:  'Cancelled',
+            };
             const labelEl = typingEl?.querySelector('.aip-typing-label');
-            if (labelEl) labelEl.textContent = msgs[status] || 'Processing...';
+            if (labelEl) labelEl.textContent = msgs[status] || '⚙️ Processing...';
           },
         });
 
@@ -1684,12 +1686,6 @@ class FLStudioApp {
     // ── Quick action executor ──
     const executeQuickAction = async (actionId, card) => {
       if (this.aiProducer.isProcessing) return;
-      if (!this.aiProducer.hasActiveConnection()) {
-        const providerName = this.aiProducer.getProvider() === 'gemini' ? 'Gemini API key' : 'model settings';
-        showToast(`Please configure your ${providerName} first ⚙️`);
-        keyPanel?.classList.remove('hidden');
-        return;
-      }
 
       if (!this.audioEngine.initialized) this.audioEngine.init();
 
