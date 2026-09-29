@@ -77,6 +77,10 @@ from backend.auth import (
     validate_password_strength,
 )
 from backend.beat_ai import generate_beat_response
+try:
+    from backend.pattern_learner import get_status as get_training_status
+except ImportError:
+    get_training_status = None
 
 SERVER_START_TIME = time.time()
 
@@ -612,6 +616,29 @@ def health_check():
     }
 
 
+@app.get("/api/ai/training-status")
+def training_status():
+    """Returns whether the AI has been trained on real music data."""
+    if get_training_status is None:
+        return {
+            "trained": False,
+            "message": "pattern_learner module not available",
+            "training_script": "python scripts/train_from_groove.py",
+        }
+    status = get_training_status()
+    if status['trained']:
+        status['message'] = (
+            f"Model trained on {status['total_learned_patterns']} real patterns "
+            f"from {status['data_source']}"
+        )
+    else:
+        status['message'] = (
+            "Using rule-based patterns. Run training script to upgrade with real music data: "
+            "python scripts/train_from_groove.py"
+        )
+    return status
+
+
 @app.post("/generate")
 @app.post("/api/music/generate")
 def music_generate(req: GenerateMusicRequest):
@@ -660,7 +687,390 @@ def ai_produce(req: AIProduceRequest):
         raise HTTPException(status_code=500, detail=f"Music AI error: {str(err)}")
 
 
+
+# ── Platform Endpoints ──────────────────────────────────────────────────────
+
+class TrainSubmitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt:       str  = Field(..., min_length=1,  max_length=500)
+    genre:        str  = Field(..., min_length=1,  max_length=50)
+    bpm:          int  = Field(120, ge=40, le=300)
+    pattern_json: str  = Field(..., min_length=2,  max_length=500_000)
+    mix_json:     Optional[str] = Field(None, max_length=100_000)
+
+
+class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    full_name:  Optional[str] = Field(None, min_length=1, max_length=100)
+    bio:        Optional[str] = Field(None, max_length=500)
+    genre_tags: Optional[str] = Field(None, max_length=200)  # comma-sep list
+
+
+class ProjectPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_public: bool
+    genre:     Optional[str] = Field(None, max_length=50)
+
+
+# ── Public Explore ──────────────────────────────────────────────────────────
+
+@app.get("/api/explore")
+def explore(limit: int = 30, genre: str = "", sort: str = "recent"):
+    """Public feed of published beats — no auth required."""
+    conn = get_db_connection()
+    params = []
+    genre_clause = ""
+    if genre:
+        genre_clause = "AND p.genre = ?"
+        params.append(genre)
+
+    sort_col = {
+        "likes":  "p.like_count DESC",
+        "plays":  "p.play_count DESC",
+        "recent": "p.updated_at DESC",
+    }.get(sort, "p.updated_at DESC")
+
+    rows = conn.execute(f"""
+        SELECT p.id, p.title, p.bpm, p.genre, p.like_count, p.play_count,
+               p.created_at, p.updated_at,
+               u.username, u.full_name, u.genre_tags
+        FROM projects p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.is_public = 1 {genre_clause}
+        ORDER BY {sort_col}
+        LIMIT ?
+    """, params + [min(limit, 100)]).fetchall()
+    conn.close()
+    return {"beats": [dict(r) for r in rows]}
+
+
+@app.get("/api/explore/genres")
+def explore_genres():
+    """Returns all genres that have at least one public beat."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT genre, COUNT(*) as count FROM projects
+        WHERE is_public = 1 AND genre != ''
+        GROUP BY genre ORDER BY count DESC
+    """).fetchall()
+    conn.close()
+    return {"genres": [dict(r) for r in rows]}
+
+
+# ── Public Project Detail + Play Count ─────────────────────────────────────
+
+@app.get("/api/beats/{project_id}/public")
+def get_public_beat(project_id: str):
+    """Fetches a public beat by ID and increments play count."""
+    conn = get_db_connection()
+    row = conn.execute("""
+        SELECT p.*, u.username, u.full_name, u.bio, u.genre_tags
+        FROM projects p JOIN users u ON p.user_id = u.id
+        WHERE p.id = ? AND p.is_public = 1
+    """, (project_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Beat not found or not public")
+    # Increment play count
+    conn.execute("UPDATE projects SET play_count = play_count + 1 WHERE id = ?", (project_id,))
+    conn.commit()
+    conn.close()
+    return dict(row)
+
+
+# ── Likes ───────────────────────────────────────────────────────────────────
+
+@app.post("/api/beats/{project_id}/like")
+def like_beat(project_id: str, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO beat_likes (user_id, project_id, created_at) VALUES (?,?,?)",
+            (user["id"], project_id, now)
+        )
+        conn.execute("UPDATE projects SET like_count = like_count + 1 WHERE id = ?", (project_id,))
+        conn.commit()
+        liked = True
+    except Exception:
+        # Already liked — toggle off
+        conn.execute("DELETE FROM beat_likes WHERE user_id = ? AND project_id = ?", (user["id"], project_id))
+        conn.execute("UPDATE projects SET like_count = MAX(0, like_count - 1) WHERE id = ?", (project_id,))
+        conn.commit()
+        liked = False
+    row = conn.execute("SELECT like_count FROM projects WHERE id = ?", (project_id,)).fetchone()
+    conn.close()
+    return {"liked": liked, "like_count": row["like_count"] if row else 0}
+
+
+@app.get("/api/beats/{project_id}/liked")
+def check_liked(project_id: str, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT id FROM beat_likes WHERE user_id = ? AND project_id = ?",
+        (user["id"], project_id)
+    ).fetchone()
+    conn.close()
+    return {"liked": row is not None}
+
+
+# ── Follow / Unfollow ───────────────────────────────────────────────────────
+
+@app.post("/api/users/{username}/follow")
+def follow_user(username: str, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    target = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    if target["id"] == user["id"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Can't follow yourself")
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO follows (follower_id, following_id, created_at) VALUES (?,?,?)",
+            (user["id"], target["id"], now)
+        )
+        conn.commit()
+        following = True
+    except Exception:
+        conn.execute(
+            "DELETE FROM follows WHERE follower_id = ? AND following_id = ?",
+            (user["id"], target["id"])
+        )
+        conn.commit()
+        following = False
+    conn.close()
+    return {"following": following}
+
+
+# ── Public Profile Pages ────────────────────────────────────────────────────
+
+@app.get("/api/profile/{username}")
+def get_profile(username: str, request: Request):
+    """Returns a public profile: user info + their public beats + stats."""
+    conn = get_db_connection()
+    user_row = conn.execute(
+        "SELECT id, username, full_name, bio, genre_tags, role, created_at, beats_submitted FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+    if not user_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+
+    uid = user_row["id"]
+
+    # Public beats
+    beats = conn.execute("""
+        SELECT id, title, bpm, genre, like_count, play_count, created_at, updated_at
+        FROM projects WHERE user_id = ? AND is_public = 1
+        ORDER BY updated_at DESC
+    """, (uid,)).fetchall()
+
+    # Stats
+    total_likes = conn.execute(
+        "SELECT COALESCE(SUM(like_count), 0) FROM projects WHERE user_id = ?", (uid,)
+    ).fetchone()[0]
+    total_plays = conn.execute(
+        "SELECT COALESCE(SUM(play_count), 0) FROM projects WHERE user_id = ?", (uid,)
+    ).fetchone()[0]
+    follower_count = conn.execute(
+        "SELECT COUNT(*) FROM follows WHERE following_id = ?", (uid,)
+    ).fetchone()[0]
+    following_count = conn.execute(
+        "SELECT COUNT(*) FROM follows WHERE follower_id = ?", (uid,)
+    ).fetchone()[0]
+
+    # Is requesting user following this profile?
+    is_following = False
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        sess = conn.execute("SELECT user_id FROM sessions WHERE token = ?", (token,)).fetchone()
+        if sess:
+            f = conn.execute(
+                "SELECT id FROM follows WHERE follower_id = ? AND following_id = ?",
+                (sess["user_id"], uid)
+            ).fetchone()
+            is_following = f is not None
+
+    conn.close()
+    return {
+        "user": dict(user_row),
+        "beats": [dict(b) for b in beats],
+        "stats": {
+            "total_likes": total_likes,
+            "total_plays": total_plays,
+            "follower_count": follower_count,
+            "following_count": following_count,
+            "beat_count": len(beats),
+            "submissions_to_max": user_row["beats_submitted"],
+        },
+        "is_following": is_following,
+    }
+
+
+@app.put("/api/profile")
+def update_profile(req: ProfileUpdateRequest, user: dict = Depends(get_current_user)):
+    """Updates authenticated user's public profile info."""
+    conn = get_db_connection()
+    updates, params = [], []
+    if req.full_name is not None:
+        updates.append("full_name = ?"); params.append(req.full_name)
+    if req.bio is not None:
+        updates.append("bio = ?"); params.append(req.bio[:500])
+    if req.genre_tags is not None:
+        # Sanitise: max 5 tags, each max 20 chars
+        tags = [t.strip()[:20] for t in req.genre_tags.split(",") if t.strip()][:5]
+        updates.append("genre_tags = ?"); params.append(",".join(tags))
+    if not updates:
+        conn.close()
+        return {"ok": True}
+    params.append(user["id"])
+    conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+    conn.commit()
+    conn.close()
+    log_action(user["id"], "PROFILE_UPDATE", f"User {user['username']} updated profile")
+    return {"ok": True}
+
+
+# ── Publish / Unpublish a Beat ──────────────────────────────────────────────
+
+@app.put("/api/projects/{project_id}/publish")
+def publish_project(project_id: str, req: ProjectPublishRequest, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    row = conn.execute("SELECT user_id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row or (row["user_id"] != user["id"] and user["role"] != "admin"):
+        conn.close()
+        raise HTTPException(status_code=404, detail="Project not found")
+    updates = {"is_public": 1 if req.is_public else 0}
+    if req.genre:
+        updates["genre"] = req.genre[:50]
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_project_safe(project_id, updates)
+    conn.close()
+    action = "published" if req.is_public else "unpublished"
+    log_action(user["id"], "PROJECT_PUBLISH", f"Project {project_id} {action}")
+    return {"ok": True, "is_public": req.is_public}
+
+
+# ── Train Max — Submit & Approve Patterns ─────────────────────────────────
+
+@app.post("/api/train/submit")
+def train_submit(req: TrainSubmitRequest, user: dict = Depends(get_current_user)):
+    """User submits their beat to train Max (rate-limited to 20/day per user)."""
+    conn = get_db_connection()
+    today = datetime.now(timezone.utc).date().isoformat()
+    count_today = conn.execute(
+        "SELECT COUNT(*) FROM train_submissions WHERE user_id = ? AND created_at LIKE ?",
+        (user["id"], f"{today}%")
+    ).fetchone()[0]
+    if count_today >= 20:
+        conn.close()
+        raise HTTPException(status_code=429, detail="You've submitted 20 patterns today. Try again tomorrow!")
+
+    sid = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO train_submissions (id, user_id, prompt, genre, bpm, pattern_json, mix_json, rating, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+    """, (sid, user["id"], req.prompt[:500], req.genre[:50], req.bpm, req.pattern_json, req.mix_json, now))
+    conn.execute(
+        "UPDATE users SET beats_submitted = beats_submitted + 1 WHERE id = ?", (user["id"],)
+    )
+    conn.commit()
+    conn.close()
+    log_action(user["id"], "TRAIN_SUBMIT", f"Genre={req.genre}, BPM={req.bpm}")
+    return {"ok": True, "submission_id": sid, "message": "Pattern submitted! Max will learn from it once approved."}
+
+
+@app.get("/api/train/status")
+def train_status_user(user: dict = Depends(get_current_user)):
+    """Returns the user's own training contribution stats."""
+    conn = get_db_connection()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM train_submissions WHERE user_id = ?", (user["id"],)
+    ).fetchone()[0]
+    approved = conn.execute(
+        "SELECT COUNT(*) FROM train_submissions WHERE user_id = ? AND rating = 1", (user["id"],)
+    ).fetchone()[0]
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM train_submissions WHERE user_id = ? AND rating = 0", (user["id"],)
+    ).fetchone()[0]
+    global_approved = conn.execute(
+        "SELECT COUNT(*) FROM train_submissions WHERE rating = 1"
+    ).fetchone()[0]
+    conn.close()
+    return {
+        "your_submissions": total,
+        "your_approved": approved,
+        "your_pending": pending,
+        "global_approved_patterns": global_approved,
+        "max_trained": global_approved > 0,
+    }
+
+
+@app.get("/api/admin/train/queue")
+def admin_train_queue(admin: dict = Depends(require_admin)):
+    """Admin: view pending training submissions."""
+    conn = get_db_connection()
+    rows = conn.execute("""
+        SELECT ts.id, ts.prompt, ts.genre, ts.bpm, ts.rating, ts.created_at,
+               u.username, u.full_name
+        FROM train_submissions ts
+        JOIN users u ON ts.user_id = u.id
+        WHERE ts.rating = 0
+        ORDER BY ts.created_at ASC
+        LIMIT 100
+    """).fetchall()
+    conn.close()
+    return {"queue": [dict(r) for r in rows]}
+
+
+@app.put("/api/admin/train/{submission_id}/approve")
+def admin_approve_pattern(submission_id: str, admin: dict = Depends(require_admin)):
+    """Admin: approve a pattern (rating=1) so Max can learn from it."""
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT id, genre, bpm, pattern_json, prompt FROM train_submissions WHERE id = ?",
+        (submission_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Submission not found")
+    conn.execute(
+        "UPDATE train_submissions SET rating = 1, approved_by = ? WHERE id = ?",
+        (admin["id"], submission_id)
+    )
+    conn.commit()
+
+    # Write to pattern_learner so Max learns immediately
+    try:
+        from backend.pattern_learner import inject_pattern
+        inject_pattern(dict(row))
+    except Exception as e:
+        print(f"[PatternLearner] Could not inject approved pattern: {e}")
+
+    conn.close()
+    log_action(admin["id"], "TRAIN_APPROVE", f"Approved pattern {submission_id}")
+    return {"ok": True, "message": "Pattern approved and Max has been updated!"}
+
+
+@app.put("/api/admin/train/{submission_id}/reject")
+def admin_reject_pattern(submission_id: str, admin: dict = Depends(require_admin)):
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE train_submissions SET rating = -1, approved_by = ? WHERE id = ?",
+        (admin["id"], submission_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
 # ── Static Files & DAW Frontend Mount ─────────────────────────────────────────
+
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def serve_index():

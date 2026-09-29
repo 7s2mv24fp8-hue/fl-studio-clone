@@ -1300,8 +1300,8 @@ class FLStudioApp {
     // ── Multi-Provider Settings ──
     const providerBadge    = document.getElementById('ai-producer-provider-badge');
     const feedbackBanner   = document.getElementById('ai-producer-status-feedback');
-    const providerTabs     = keyPanel?.querySelectorAll('.ai-provider-tab') || [];
-    const providerContents = keyPanel?.querySelectorAll('.ai-provider-content') || [];
+    const providerTabs     = keyPanel?.querySelectorAll('.aip-provider-tab') || [];
+    const providerContents = keyPanel?.querySelectorAll('.aip-provider-pane') || [];
 
     // Ollama controls
     const ollamaUrlInput   = document.getElementById('ai-ollama-url');
@@ -1310,7 +1310,7 @@ class FLStudioApp {
     const ollamaScanBtn    = document.getElementById('ai-ollama-scan-btn');
     const ollamaTestBtn    = document.getElementById('ai-ollama-test-btn');
     const ollamaSaveBtn    = document.getElementById('ai-ollama-save-btn');
-    const ollamaChips      = keyPanel?.querySelectorAll('#ai-tab-ollama .ai-chip-btn') || [];
+    const ollamaChips      = keyPanel?.querySelectorAll('#ai-tab-ollama .aip-model-chip') || [];
 
     // Local OpenAI controls
     const localOAUrlInput   = document.getElementById('ai-local-openai-url');
@@ -1324,7 +1324,7 @@ class FLStudioApp {
     const showFeedback = (msg, type = 'info') => {
       if (!feedbackBanner) return;
       feedbackBanner.textContent = msg;
-      feedbackBanner.className = `ai-status-feedback ${type}`;
+      feedbackBanner.className = `aip-feedback ${type}`;
       feedbackBanner.classList.remove('hidden');
     };
 
@@ -1359,9 +1359,9 @@ class FLStudioApp {
       });
 
       // Populate current values
-      if (ollamaUrlInput) ollamaUrlInput.value = this.aiProducer.ollama.baseUrl;
+      if (ollamaUrlInput) ollamaUrlInput.value = this.aiProducer.ollama.base;
       if (ollamaModelInput) ollamaModelInput.value = this.aiProducer.ollama.model;
-      if (localOAUrlInput) localOAUrlInput.value = this.aiProducer.localOpenAI.baseUrl;
+      if (localOAUrlInput) localOAUrlInput.value = this.aiProducer.localOpenAI.base;
       if (localOAModelInput) localOAModelInput.value = this.aiProducer.localOpenAI.model;
       if (keyInput) keyInput.value = this.aiProducer.getApiKey();
 
@@ -1492,7 +1492,10 @@ class FLStudioApp {
       }
     });
 
-    keyToggle?.addEventListener('click', () => keyPanel?.classList.toggle('hidden'));
+    keyToggle?.addEventListener('click', () => {
+      keyPanel?.classList.toggle('hidden');
+      keyToggle.classList.toggle('active', !keyPanel?.classList.contains('hidden'));
+    });
 
     // ── Undo ──
     const updateUndoBtn = () => {
@@ -1505,79 +1508,95 @@ class FLStudioApp {
         if (this.mixer) this.mixer.render();
         document.getElementById('bpm-display').value = this.sequencer.bpm;
         showToast('↩ Reverted to previous state');
-        addAIMsg('ai', 'Reverted to the previous state. Your pattern is restored.', {});
+        addAIMsg('ai', 'Reverted. Pattern is back to where it was.', {});
       }
       updateUndoBtn();
     });
+
+    // ── Render welcome screen ──
+    const renderWelcome = () => {
+      if (!messagesEl) return;
+      const starters = (typeof PROMPT_STARTERS !== 'undefined') ? PROMPT_STARTERS : [];
+      messagesEl.innerHTML = `
+        <div class="aip-welcome">
+          <div class="aip-welcome-avatar">🎧</div>
+          <div class="aip-welcome-name">Max the Producer</div>
+          <div class="aip-welcome-tagline">Tell me what kind of beat you're after — genre, mood, BPM — and I'll build it. Or tap one of these:</div>
+          <div class="aip-starters">${starters.map(s =>
+            `<button class="aip-starter-btn" data-prompt="${s.text}">
+              <span class="aip-starter-emoji">${s.emoji}</span>
+              <span class="aip-starter-text">${s.text}</span>
+            </button>`
+          ).join('')}</div>
+        </div>`;
+      // Wire starters
+      messagesEl.querySelectorAll('.aip-starter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (inputEl) { inputEl.value = btn.dataset.prompt; sendMessage(); }
+        });
+      });
+    };
 
     // ── Clear chat ──
     clearBtn?.addEventListener('click', () => {
       this.aiProducer.clearConversation();
-      if (messagesEl) {
-        messagesEl.innerHTML = `
-          <div class="aip-welcome-msg">
-            <div class="aip-welcome-icon">🤖</div>
-            <div class="aip-welcome-title">AI Producer</div>
-            <div class="aip-welcome-sub">Describe the beat you want, or use a quick action. I'll create patterns, arrange, and mix-master for you.</div>
-          </div>`;
-      }
+      renderWelcome();
       updateUndoBtn();
-      showToast('🗑 Conversation cleared');
+      showToast('Cleared — fresh start with Max');
     });
+
+    // Show welcome on load
+    renderWelcome();
 
     // ── Populate Quick Actions ──
     if (actionsEl && typeof AI_PRODUCER_ACTIONS !== 'undefined') {
       AI_PRODUCER_ACTIONS.forEach(action => {
-        const card = document.createElement('div');
-        card.className = 'aip-action-card';
-        card.dataset.action = action.id;
-        card.innerHTML = `
-          <div class="aip-action-icon">${action.icon}</div>
-          <div class="aip-action-info">
-            <div class="aip-action-label">${action.label}</div>
-            <div class="aip-action-desc">${action.desc}</div>
-          </div>`;
-        card.addEventListener('click', () => executeQuickAction(action.id, card));
-        actionsEl.appendChild(card);
+        const btn = document.createElement('button');
+        btn.className = 'aip-quick-btn';
+        btn.dataset.action = action.id;
+        btn.innerHTML = `<span>${action.icon}</span><span>${action.label}</span>`;
+        btn.title = action.desc;
+        btn.addEventListener('click', () => executeQuickAction(action.id, btn));
+        actionsEl.appendChild(btn);
       });
     }
 
-    // ── Populate Genre chips ──
+    // ── Populate Genre pills ──
     if (genresEl && typeof AI_PRODUCER_GENRES !== 'undefined') {
       AI_PRODUCER_GENRES.forEach(genre => {
-        const chip = document.createElement('button');
-        chip.className = 'aip-tag-chip genre';
-        chip.textContent = genre;
-        chip.addEventListener('click', () => {
-          chip.classList.toggle('selected');
+        const pill = document.createElement('button');
+        pill.className = 'aip-pill';
+        pill.textContent = genre;
+        pill.addEventListener('click', () => {
+          pill.classList.toggle('selected');
           const idx = this.aiProducer.selectedGenres.indexOf(genre);
           if (idx >= 0) this.aiProducer.selectedGenres.splice(idx, 1);
           else this.aiProducer.selectedGenres.push(genre);
         });
-        genresEl.appendChild(chip);
+        genresEl.appendChild(pill);
       });
     }
 
-    // ── Populate Mood chips ──
+    // ── Populate Mood pills ──
     if (moodsEl && typeof AI_PRODUCER_MOODS !== 'undefined') {
       AI_PRODUCER_MOODS.forEach(mood => {
-        const chip = document.createElement('button');
-        chip.className = 'aip-tag-chip mood';
-        chip.textContent = mood;
-        chip.addEventListener('click', () => {
-          chip.classList.toggle('selected');
+        const pill = document.createElement('button');
+        pill.className = 'aip-pill mood';
+        pill.textContent = mood;
+        pill.addEventListener('click', () => {
+          pill.classList.toggle('selected');
           const idx = this.aiProducer.selectedMoods.indexOf(mood);
           if (idx >= 0) this.aiProducer.selectedMoods.splice(idx, 1);
           else this.aiProducer.selectedMoods.push(mood);
         });
-        moodsEl.appendChild(chip);
+        moodsEl.appendChild(pill);
       });
     }
 
     // ── Chat message rendering ──
     const addAIMsg = (role, text, result) => {
-      // Remove welcome message if present
-      const welcome = messagesEl?.querySelector('.aip-welcome-msg');
+      // Remove welcome screen when first real message comes in
+      const welcome = messagesEl?.querySelector('.aip-welcome');
       if (welcome) welcome.remove();
 
       const el = document.createElement('div');
@@ -1585,45 +1604,39 @@ class FLStudioApp {
 
       if (role === 'user') {
         el.innerHTML = `
-          <div class="aip-msg-avatar">👤</div>
-          <div class="aip-msg-body">
-            <div class="aip-msg-text">${escapeHTML(text)}</div>
-          </div>`;
+          <div class="aip-msg-avatar-img">👤</div>
+          <div class="aip-msg-bubble">${escapeHTML(text)}</div>`;
       } else {
-        // AI message with badges and suggestions
+        // Build badges
         let badges = '';
-        if (result?.hasBeat) badges += '<span class="aip-msg-badge beat">🥁 Beat Applied</span>';
-        if (result?.hasMix)  badges += '<span class="aip-msg-badge mix">🎚️ Mix Applied</span>';
-        if (result?.bpm)     badges += `<span class="aip-msg-badge bpm">♩ ${result.bpm} BPM</span>`;
+        if (result?.hasBeat) badges += '<span class="aip-badge beat">🥁 Beat</span>';
+        if (result?.hasMix)  badges += '<span class="aip-badge mix">🎚 Mix</span>';
+        if (result?.bpm)     badges += `<span class="aip-badge bpm">♩ ${result.bpm}</span>`;
 
-        let suggestionsHTML = '';
+        let sugsHTML = '';
         if (result?.suggestions?.length > 0) {
-          suggestionsHTML = '<div class="aip-suggestions">' +
-            result.suggestions.map(s => `<button class="aip-suggestion-chip">${escapeHTML(s)}</button>`).join('') +
+          sugsHTML = '<div class="aip-suggestions">' +
+            result.suggestions.map(s => `<button class="aip-sug-chip">${escapeHTML(s)}</button>`).join('') +
             '</div>';
         }
 
         el.innerHTML = `
-          <div class="aip-msg-avatar">🤖</div>
-          <div class="aip-msg-body">
-            <div class="aip-msg-text">${escapeHTML(text)}</div>
-            ${badges ? '<div class="aip-msg-actions">' + badges + '</div>' : ''}
-            ${suggestionsHTML}
+          <div class="aip-msg-avatar-img">🎧</div>
+          <div class="aip-msg-bubble">
+            ${escapeHTML(text)}
+            ${badges ? '<div class="aip-msg-badges">' + badges + '</div>' : ''}
+            ${sugsHTML}
           </div>`;
 
-        // Bind suggestion chips
-        el.querySelectorAll('.aip-suggestion-chip').forEach(chip => {
+        // Wire suggestion chips → send as new message
+        el.querySelectorAll('.aip-sug-chip').forEach(chip => {
           chip.addEventListener('click', () => {
-            if (inputEl) {
-              inputEl.value = chip.textContent;
-              sendMessage();
-            }
+            if (inputEl) { inputEl.value = chip.textContent; sendMessage(); }
           });
         });
       }
 
       messagesEl?.appendChild(el);
-      // Auto-scroll to bottom
       if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
     };
 
@@ -1659,8 +1672,7 @@ class FLStudioApp {
               error:      '❌ Error',
               cancelled:  'Cancelled',
             };
-            const labelEl = typingEl?.querySelector('.aip-typing-label');
-            if (labelEl) labelEl.textContent = msgs[status] || '⚙️ Processing...';
+            // No label needed — just dots in bubble
           },
         });
 
@@ -1690,6 +1702,7 @@ class FLStudioApp {
       if (!this.audioEngine.initialized) this.audioEngine.init();
 
       card?.classList.add('processing');
+      card?.setAttribute('disabled', '');
       typingEl?.classList.remove('hidden');
 
       // Show action as user message
@@ -1724,6 +1737,7 @@ class FLStudioApp {
         addAIMsg('ai', `Error: ${err.message}`, {});
       } finally {
         card?.classList.remove('processing');
+        card?.removeAttribute('disabled');
       }
     };
 

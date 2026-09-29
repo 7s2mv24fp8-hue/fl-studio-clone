@@ -141,8 +141,20 @@
       <button id="btn-cloud-save" class="tb-cloud-btn" title="Save Project to Database">
         <span>💾</span> Save
       </button>
+      <button id="plat-cloud-save-btn" class="tb-cloud-btn" title="Save to Cloud">
+        <span>☁️</span> Cloud Save
+      </button>
       <button id="btn-cloud-open" class="tb-cloud-btn" title="Open Cloud Projects">
         <span>📂</span> Projects
+      </button>
+      <button id="plat-explore-tab" title="Explore Community Beats">
+        🌐 Explore
+      </button>
+      <button id="plat-train-btn" title="Train Max with your beats" style="display:none">
+        🧠 Train Max
+      </button>
+      <button id="plat-publish-btn" class="tb-cloud-btn" title="Publish beat to Explore" style="display:none">
+        <span>📡</span> Publish
       </button>
       <button id="btn-admin-dash" class="tb-cloud-btn admin-btn" title="Super Admin Dashboard">
         <span>⚡</span> Admin Panel
@@ -672,198 +684,145 @@
       <div id="tab-ai-producer" class="tab-content">
         <div id="ai-producer-view">
 
-          <!-- Top bar -->
+          <!-- Header bar -->
           <div id="ai-producer-topbar">
-            <div class="ai-producer-title">
-              <span class="ai-producer-icon">🤖</span>
-              <span>AI <strong>Producer</strong></span>
-              <span class="ai-producer-badge" id="ai-producer-provider-badge">Ollama</span>
+            <div class="aip-header-left">
+              <div class="aip-avatar-pulse">
+                <div class="aip-avatar">🎧</div>
+              </div>
+              <div>
+                <div class="aip-header-name">Max <span class="aip-online-dot" title="Online"></span></div>
+                <div class="aip-header-sub" id="ai-producer-provider-badge">BeYou AI · Built-in</div>
+              </div>
             </div>
-            <div class="ai-producer-topbar-right">
-              <button id="ai-producer-undo" class="ai-producer-undo-btn" disabled title="Undo last AI change">
-                ↩ Undo
+            <div class="aip-header-actions">
+              <button id="ai-producer-undo" class="aip-icon-btn" disabled title="Undo last AI change">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
               </button>
-              <button id="ai-producer-clear-chat" class="ai-producer-clear-btn" title="Clear conversation">
-                🗑 Clear
+              <button id="ai-producer-clear-chat" class="aip-icon-btn" title="Clear conversation">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
               </button>
-              <button id="ai-producer-key-toggle" class="ai-producer-key-btn" title="Model & Provider Settings">
-                ⚙️ <span id="ai-producer-key-status">Ollama</span>
+              <button id="ai-producer-key-toggle" class="aip-icon-btn aip-settings-btn" title="AI Settings">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
               </button>
-            </div>
-          </div>
-
-          <!-- Model & Provider setup (collapsible) -->
-          <div id="ai-producer-key-panel" class="ai-producer-key-panel hidden">
-            <div class="ai-key-panel-inner">
-              <div class="ai-provider-nav">
-                <button type="button" class="ai-provider-tab active" data-provider="beyou">🎵 BeYou AI (Built-in)</button>
-                <button type="button" class="ai-provider-tab" data-provider="ollama">🦙 Local Ollama</button>
-                <button type="button" class="ai-provider-tab" data-provider="local-openai">🖥️ LM Studio</button>
-                <button type="button" class="ai-provider-tab" data-provider="gemini">☁️ Gemini</button>
-              </div>
-
-              <!-- BeYou AI Tab Content (Built-in, no setup needed) -->
-              <div class="ai-provider-content active" id="ai-tab-beyou">
-                <div class="ai-beyou-info">
-                  <div class="ai-beyou-badge">✅ Ready to Use</div>
-                  <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 8px 0;">
-                    <strong>BeYou Music AI</strong> is our built-in music production engine. It knows <strong>18 genres</strong> including Trap, Drill, House, Lo-Fi, Techno, DnB, Reggaeton, Afrobeats, Synthwave, Phonk, Jazz, R&B, Pop, Rock, and more.
-                  </p>
-                  <p style="color: var(--text-secondary); font-size: 0.78rem; margin: 4px 0;">
-                    🎯 Just type what you want — <em>"make a dark trap beat at 140 bpm"</em> — and it instantly generates authentic patterns, velocities, and a professional mix.
-                  </p>
-                  <p style="color: var(--text-secondary); font-size: 0.75rem; margin: 8px 0 0 0; opacity: 0.7;">
-                    💡 For more creative results, switch to Ollama or Gemini in the tabs above.
-                  </p>
-                </div>
-              </div>
-
-              <!-- Ollama Tab Content -->
-              <div class="ai-provider-content" id="ai-tab-ollama">
-                <div class="ai-config-grid">
-                  <div class="ai-config-field">
-                    <label class="ai-key-label">Ollama Host URL</label>
-                    <input type="text" id="ai-ollama-url" class="ai-key-input" value="http://localhost:11434" placeholder="http://localhost:11434">
-                  </div>
-                  <div class="ai-config-field">
-                    <label class="ai-key-label">Model Name</label>
-                    <div class="ai-model-input-group">
-                      <input type="text" id="ai-ollama-model" class="ai-key-input" value="chatmusician" placeholder="chatmusician, llama3.2, etc.">
-                      <select id="ai-ollama-model-select" class="ai-model-select hidden" title="Select installed model">
-                        <option value="">Choose detected model...</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="ai-model-quick-chips">
-                  <span class="ai-quick-label">Suggested models:</span>
-                  <button type="button" class="ai-chip-btn" data-model="chatmusician">🎵 chatmusician (Music-tuned)</button>
-                  <button type="button" class="ai-chip-btn" data-model="llama3.2">🦙 llama3.2</button>
-                  <button type="button" class="ai-chip-btn" data-model="mistral">⚡ mistral</button>
-                  <button type="button" class="ai-chip-btn" data-model="qwen2.5:7b">🧠 qwen2.5:7b</button>
-                  <button type="button" class="ai-chip-btn" data-model="deepseek-r1:8b">🔬 deepseek-r1:8b</button>
-                </div>
-
-                <div class="ai-panel-actions">
-                  <button type="button" id="ai-ollama-scan-btn" class="ai-action-btn secondary">🔍 Scan Local Models</button>
-                  <button type="button" id="ai-ollama-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
-                  <button type="button" id="ai-ollama-save-btn" class="ai-key-save-btn">Save & Use Ollama</button>
-                </div>
-
-                <div class="ai-key-hint">
-                  <strong>💡 How to run Ollama for Web apps:</strong> Run <code>OLLAMA_ORIGINS="*" ollama serve</code> in your terminal to enable CORS. To install a music LLM, run <code>ollama run chatmusician</code>.
-                </div>
-              </div>
-
-              <!-- LM Studio / OpenAI Local Tab Content -->
-              <div class="ai-provider-content" id="ai-tab-local-openai">
-                <div class="ai-config-grid">
-                  <div class="ai-config-field">
-                    <label class="ai-key-label">Local Server Base URL</label>
-                    <input type="text" id="ai-local-openai-url" class="ai-key-input" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
-                  </div>
-                  <div class="ai-config-field">
-                    <label class="ai-key-label">Model Identifier</label>
-                    <input type="text" id="ai-local-openai-model" class="ai-key-input" value="local-model" placeholder="e.g. local-model or loaded model in LM Studio">
-                  </div>
-                </div>
-                <div class="ai-panel-actions">
-                  <button type="button" id="ai-local-openai-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
-                  <button type="button" id="ai-local-openai-save-btn" class="ai-key-save-btn">Save & Use Local</button>
-                </div>
-                <div class="ai-key-hint">
-                  <strong>💡 In LM Studio:</strong> Open the Local Server tab (↔️ icon), enable <em>CORS</em>, load your music model, and click <em>Start Server</em>.
-                </div>
-              </div>
-
-              <!-- Gemini Tab Content -->
-              <div class="ai-provider-content" id="ai-tab-gemini">
-                <label class="ai-key-label">Google Gemini API Key</label>
-                <div class="ai-key-input-row">
-                  <input type="password" id="ai-producer-key-input" class="ai-key-input" placeholder="AIza..." autocomplete="off">
-                  <button type="button" id="ai-gemini-test-btn" class="ai-action-btn secondary">⚡ Test Ping</button>
-                  <button type="button" id="ai-producer-key-save" class="ai-key-save-btn">Save & Use Gemini</button>
-                </div>
-                <div class="ai-key-hint">
-                  Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
-                </div>
-              </div>
-
-              <!-- Live connection feedback banner -->
-              <div id="ai-producer-status-feedback" class="ai-status-feedback hidden"></div>
             </div>
           </div>
 
-          <!-- Main body -->
+          <!-- Settings panel (slide-down) -->
+          <div id="ai-producer-key-panel" class="aip-settings-panel hidden">
+            <div class="aip-settings-inner">
+              <div class="aip-provider-tabs">
+                <button type="button" class="aip-provider-tab active" data-provider="beyou">🎵 BeYou AI</button>
+                <button type="button" class="aip-provider-tab" data-provider="ollama">🦙 Ollama</button>
+                <button type="button" class="aip-provider-tab" data-provider="local-openai">🖥️ LM Studio</button>
+                <button type="button" class="aip-provider-tab" data-provider="gemini">✨ Gemini</button>
+              </div>
+
+              <!-- BeYou -->
+              <div class="aip-provider-pane active" id="ai-tab-beyou">
+                <div class="aip-ready-badge">✅ Ready — no setup needed</div>
+                <p class="aip-provider-desc">Trained on real drummer data from the Google Magenta Groove MIDI Dataset. Knows 20 genres. Works offline.</p>
+              </div>
+
+              <!-- Ollama -->
+              <div class="aip-provider-pane" id="ai-tab-ollama">
+                <div class="aip-field-row">
+                  <label>Host URL</label>
+                  <input type="text" id="ai-ollama-url" class="aip-text-input" value="http://localhost:11434" placeholder="http://localhost:11434">
+                </div>
+                <div class="aip-field-row">
+                  <label>Model</label>
+                  <input type="text" id="ai-ollama-model" class="aip-text-input" value="chatmusician" placeholder="chatmusician, llama3.2, mistral...">
+                </div>
+                <div class="aip-quick-models">
+                  <button type="button" class="aip-model-chip" data-model="chatmusician">chatmusician</button>
+                  <button type="button" class="aip-model-chip" data-model="llama3.2">llama3.2</button>
+                  <button type="button" class="aip-model-chip" data-model="mistral">mistral</button>
+                  <button type="button" class="aip-model-chip" data-model="qwen2.5:7b">qwen2.5:7b</button>
+                </div>
+                <div class="aip-btn-row">
+                  <button type="button" id="ai-ollama-scan-btn" class="aip-sec-btn">🔍 Scan Models</button>
+                  <button type="button" id="ai-ollama-test-btn" class="aip-sec-btn">⚡ Test</button>
+                  <button type="button" id="ai-ollama-save-btn" class="aip-primary-btn">Use Ollama</button>
+                </div>
+                <p class="aip-hint">Run <code>OLLAMA_ORIGINS="*" ollama serve</code> to enable CORS</p>
+              </div>
+
+              <!-- LM Studio -->
+              <div class="aip-provider-pane" id="ai-tab-local-openai">
+                <div class="aip-field-row">
+                  <label>Server URL</label>
+                  <input type="text" id="ai-local-openai-url" class="aip-text-input" value="http://localhost:1234/v1" placeholder="http://localhost:1234/v1">
+                </div>
+                <div class="aip-field-row">
+                  <label>Model ID</label>
+                  <input type="text" id="ai-local-openai-model" class="aip-text-input" value="local-model" placeholder="local-model">
+                </div>
+                <div class="aip-btn-row">
+                  <button type="button" id="ai-local-openai-test-btn" class="aip-sec-btn">⚡ Test</button>
+                  <button type="button" id="ai-local-openai-save-btn" class="aip-primary-btn">Use LM Studio</button>
+                </div>
+                <p class="aip-hint">Enable CORS in LM Studio → Local Server tab</p>
+              </div>
+
+              <!-- Gemini -->
+              <div class="aip-provider-pane" id="ai-tab-gemini">
+                <div class="aip-field-row">
+                  <label>Gemini API Key</label>
+                  <input type="password" id="ai-producer-key-input" class="aip-text-input" placeholder="AIza..." autocomplete="off">
+                </div>
+                <div class="aip-btn-row">
+                  <button type="button" id="ai-gemini-test-btn" class="aip-sec-btn">⚡ Test</button>
+                  <button type="button" id="ai-producer-key-save" class="aip-primary-btn">Use Gemini</button>
+                </div>
+                <p class="aip-hint">Free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
+              </div>
+
+              <div id="ai-producer-status-feedback" class="aip-feedback hidden"></div>
+            </div>
+          </div>
+
+          <!-- Main chat area -->
           <div id="ai-producer-body">
 
-            <!-- Left: Controls -->
-            <div id="ai-producer-controls">
+            <!-- Chat messages -->
+            <div id="ai-producer-messages" class="aip-messages">
+              <!-- Welcome screen injected here by JS -->
+            </div>
 
-              <!-- Quick Actions -->
-              <div class="aip-section">
-                <label class="aip-section-label">Quick Actions</label>
-                <div id="ai-producer-actions" class="aip-actions-grid">
-                  <!-- Filled dynamically -->
-                </div>
+            <!-- Typing indicator -->
+            <div id="ai-producer-typing" class="aip-typing hidden">
+              <div class="aip-typing-avatar">🎧</div>
+              <div class="aip-typing-bubble">
+                <span></span><span></span><span></span>
               </div>
+            </div>
 
-              <!-- Genre selector -->
-              <div class="aip-section">
-                <label class="aip-section-label">Genre</label>
-                <div id="ai-producer-genres" class="aip-tags-wrap">
-                  <!-- Filled dynamically -->
-                </div>
+            <!-- Genre + mood pills -->
+            <div id="aip-context-bar">
+              <div class="aip-context-scroll">
+                <span class="aip-context-label">Genre:</span>
+                <div id="ai-producer-genres" class="aip-pill-group"></div>
+                <span class="aip-context-label aip-context-label--mood">Mood:</span>
+                <div id="ai-producer-moods" class="aip-pill-group"></div>
               </div>
+            </div>
 
-              <!-- Mood selector -->
-              <div class="aip-section">
-                <label class="aip-section-label">Mood</label>
-                <div id="ai-producer-moods" class="aip-tags-wrap">
-                  <!-- Filled dynamically -->
-                </div>
-              </div>
+            <!-- Quick action bar -->
+            <div id="aip-quick-bar">
+              <div id="ai-producer-actions" class="aip-quick-actions"></div>
+            </div>
 
-              <!-- Status indicator -->
-              <div id="ai-producer-status" class="aip-status hidden">
-                <div class="aip-status-icon"></div>
-                <div class="aip-status-text"></div>
-              </div>
-
-            </div><!-- #ai-producer-controls -->
-
-            <!-- Right: Chat -->
-            <div id="ai-producer-chat-panel">
-
-              <!-- Chat messages -->
-              <div id="ai-producer-messages" class="aip-messages">
-                <div class="aip-welcome-msg">
-                  <div class="aip-welcome-icon">🤖</div>
-                  <div class="aip-welcome-title">AI Producer</div>
-                  <div class="aip-welcome-sub">Describe the beat you want, or use a quick action. I'll create patterns, arrange, and mix-master for you.</div>
-                </div>
-              </div>
-
-              <!-- Typing indicator -->
-              <div id="ai-producer-typing" class="aip-typing hidden">
-                <div class="aip-typing-dots">
-                  <span></span><span></span><span></span>
-                </div>
-                <span class="aip-typing-label">AI is thinking...</span>
-              </div>
-
-              <!-- Chat input -->
-              <div id="ai-producer-input-bar" class="aip-input-bar">
-                <textarea id="ai-producer-input" class="aip-input" rows="1" placeholder="Describe your beat... e.g. 'dark trap beat at 140 BPM'" maxlength="1000"></textarea>
-                <button id="ai-producer-send" class="aip-send-btn" title="Send">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                  </svg>
-                </button>
-              </div>
-
-            </div><!-- #ai-producer-chat-panel -->
+            <!-- Input bar -->
+            <div id="ai-producer-input-bar" class="aip-input-bar">
+              <textarea id="ai-producer-input" class="aip-input" rows="1"
+                placeholder="Tell Max what you want... e.g. dark trap at 140" maxlength="1000"></textarea>
+              <button id="ai-producer-send" class="aip-send-btn" title="Send (Enter)">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            </div>
 
           </div><!-- #ai-producer-body -->
 
@@ -1324,6 +1283,365 @@
     }, 1000);
   });
 </script>
+
+<script src="js/platform.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PLATFORM MODAL OVERLAY
+═══════════════════════════════════════════════════════════ -->
+<div id="plat-modal-overlay" class="plat-modal-overlay hidden">
+
+  <!-- EXPLORE MODAL -->
+  <div id="explore-modal" class="plat-modal hidden">
+    <div class="plat-modal-header">
+      <div class="plat-modal-title">
+        <span class="plat-modal-icon">🌐</span>
+        <span>Explore Beats</span>
+        <span class="plat-modal-sub">Discover what the community is making</span>
+      </div>
+      <button class="plat-modal-close" onclick="window.platform.closeAll()">✕</button>
+    </div>
+    <div class="plat-modal-toolbar">
+      <div id="explore-sort-tabs" class="plat-tabs">
+        <button class="plat-tab active" data-sort="recent">🕐 Latest</button>
+        <button class="plat-tab" data-sort="likes">♥ Top Liked</button>
+        <button class="plat-tab" data-sort="plays">▶ Most Played</button>
+      </div>
+      <select id="explore-genre-filter" class="plat-select">
+        <option value="">All Genres</option>
+      </select>
+    </div>
+    <div id="explore-grid" class="explore-grid plat-modal-body-scroll"></div>
+  </div>
+
+  <!-- PROFILE MODAL -->
+  <div id="profile-modal" class="plat-modal hidden">
+    <div class="plat-modal-header">
+      <div class="plat-modal-title">
+        <span class="plat-modal-icon">👤</span>
+        <span>Producer Profile</span>
+      </div>
+      <button class="plat-modal-close" onclick="window.platform.closeAll()">✕</button>
+    </div>
+    <div id="profile-modal-body" class="plat-modal-body-scroll"></div>
+  </div>
+
+  <!-- TRAIN MAX MODAL -->
+  <div id="train-modal" class="plat-modal hidden">
+    <div class="plat-modal-header">
+      <div class="plat-modal-title">
+        <span class="plat-modal-icon">🧠</span>
+        <span>Train Max</span>
+        <span class="plat-modal-sub">Crowdsource the AI producer</span>
+      </div>
+      <button class="plat-modal-close" onclick="window.platform.closeAll()">✕</button>
+    </div>
+    <div class="plat-modal-body-scroll">
+      <div id="train-stats-panel" class="train-stats-panel">
+        <div class="plat-loading"><div class="plat-spinner"></div><span>Loading stats...</span></div>
+      </div>
+
+      <div class="train-submit-section">
+        <div class="train-section-title">📤 Submit your current beat to train Max</div>
+        <p class="train-hint">Max learns from real beats made by the community. The more diverse beats submitted, the smarter he gets. Your current DAW pattern will be captured automatically.</p>
+
+        <div class="train-form">
+          <label class="plat-label">Genre</label>
+          <input class="plat-input" id="train-genre-input" placeholder="trap, lofi, drill, afrobeats, house..." maxlength="50">
+
+          <label class="plat-label">Describe what makes this beat unique</label>
+          <textarea class="plat-input plat-textarea" id="train-prompt-input" placeholder="e.g. Dark 808 trap with hi-hat rolls and heavy sub bass, perfect for drill" maxlength="500"></textarea>
+
+          <button class="plat-btn-primary" id="train-submit-btn">
+            🚀 Submit Pattern to Train Max
+          </button>
+          <div id="train-submit-status" class="plat-status hidden"></div>
+        </div>
+
+        <div class="train-how-it-works">
+          <div class="train-section-title">How it works</div>
+          <div class="train-steps">
+            <div class="train-step"><span class="ts-num">1</span><span>You make a beat in the DAW and submit it here</span></div>
+            <div class="train-step"><span class="ts-num">2</span><span>The admin reviews it for quality</span></div>
+            <div class="train-step"><span class="ts-num">3</span><span>Once approved, Max immediately learns from it</span></div>
+            <div class="train-step"><span class="ts-num">4</span><span>Max's suggestions improve for everyone on the platform</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PLATFORM TOAST
+═══════════════════════════════════════════════════════════ -->
+<div id="plat-toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     PLATFORM CSS
+═══════════════════════════════════════════════════════════ -->
+<style>
+/* ── Overlay ──────────────────────────────────────────────────────────────── */
+.plat-modal-overlay {
+  position: fixed; inset: 0; z-index: 20000;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.plat-modal-overlay.hidden { display: none; }
+
+/* ── Modal Shell ──────────────────────────────────────────────────────────── */
+.plat-modal {
+  background: #0f1117;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,106,0,0.12);
+  width: 100%; max-width: 900px;
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: plat-pop 0.22s cubic-bezier(0.16,1,0.3,1);
+}
+.plat-modal.hidden { display: none; }
+@keyframes plat-pop {
+  from { transform: scale(0.95) translateY(12px); opacity: 0; }
+  to   { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* ── Modal Header ─────────────────────────────────────────────────────────── */
+.plat-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  background: #0a0c11;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.plat-modal-title {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 15px; font-weight: 700; color: #fff;
+}
+.plat-modal-icon { font-size: 18px; }
+.plat-modal-sub { font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.4); margin-left: 4px; }
+.plat-modal-close {
+  background: none; border: none; color: rgba(255,255,255,0.4); font-size: 18px;
+  cursor: pointer; border-radius: 6px; padding: 4px 8px; transition: all 0.15s;
+}
+.plat-modal-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+/* ── Modal Toolbar ────────────────────────────────────────────────────────── */
+.plat-modal-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  background: #0d0f15;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.plat-tabs { display: flex; gap: 3px; }
+.plat-tab {
+  background: none; border: none;
+  color: rgba(255,255,255,0.45); font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border-radius: 6px; cursor: pointer; transition: all 0.15s;
+}
+.plat-tab:hover { color: #fff; background: rgba(255,255,255,0.07); }
+.plat-tab.active { background: rgba(255,106,0,0.18); color: #ff8040; }
+.plat-select {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px; padding: 5px 10px; color: #fff; font-size: 11px;
+  outline: none; cursor: pointer; margin-left: auto;
+}
+.plat-select option { background: #1a1d24; }
+
+/* ── Scrollable body ──────────────────────────────────────────────────────── */
+.plat-modal-body-scroll {
+  flex: 1; overflow-y: auto; padding: 16px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+/* ── Explore Grid ─────────────────────────────────────────────────────────── */
+.explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.explore-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; overflow: hidden;
+  transition: all 0.2s; cursor: pointer;
+}
+.explore-card:hover {
+  border-color: rgba(255,106,0,0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+/* Waveform viz */
+.ec-waveform {
+  height: 64px; background: #0a0c10;
+  display: flex; align-items: flex-end; gap: 2px;
+  padding: 6px 10px; cursor: pointer;
+}
+.ec-bar {
+  flex: 1; background: linear-gradient(to top, #ff6a00, #a855f7);
+  border-radius: 2px 2px 0 0;
+  animation: ec-wave 1.4s ease-in-out infinite alternate;
+}
+@keyframes ec-wave {
+  from { opacity: 0.4; transform: scaleY(0.7); }
+  to   { opacity: 1;   transform: scaleY(1); }
+}
+.explore-card:not(:hover) .ec-bar { animation-play-state: paused; }
+.ec-body { padding: 10px 12px; }
+.ec-title { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ec-meta { display: flex; gap: 8px; margin-bottom: 8px; }
+.ec-genre { background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.25); color: #c084fc; font-size: 10px; padding: 2px 7px; border-radius: 10px; }
+.ec-bpm { font-size: 10px; color: rgba(255,255,255,0.35); font-family: monospace; align-self: center; }
+.ec-author { display: flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 8px; }
+.ec-avatar { width: 20px; height: 20px; background: linear-gradient(135deg, #ff6a00, #a855f7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.ec-author span:last-child { font-size: 11px; color: rgba(255,255,255,0.55); }
+.ec-author:hover span:last-child { color: #ff8040; }
+.ec-stats { display: flex; align-items: center; gap: 10px; }
+.ec-like-btn { background: none; border: none; color: rgba(255,255,255,0.35); font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 3px; padding: 0; transition: color 0.15s; }
+.ec-like-btn:hover, .ec-like-btn.liked { color: #f43f5e; }
+.ec-plays { font-size: 11px; color: rgba(255,255,255,0.3); }
+
+/* ── Public Profile ───────────────────────────────────────────────────────── */
+.prof-header {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 16px;
+}
+.prof-avatar-lg {
+  width: 72px; height: 72px; flex-shrink: 0;
+  background: linear-gradient(135deg, #ff6a00, #a855f7);
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 30px; font-weight: 800; color: #fff;
+}
+.prof-info { flex: 1; }
+.prof-name { font-size: 18px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px; }
+.prof-crown { font-size: 16px; }
+.prof-handle { font-size: 12px; color: rgba(255,255,255,0.4); margin: 2px 0 8px; }
+.prof-bio { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.5; margin-bottom: 8px; }
+.prof-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.prof-tag { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); font-size: 10px; padding: 3px 9px; border-radius: 20px; }
+.prof-tag.muted { opacity: 0.4; }
+.prof-actions { flex-shrink: 0; }
+.prof-follow-btn {
+  background: linear-gradient(135deg, #ff6a00, #ea580c);
+  border: none; color: #fff; font-weight: 700; font-size: 12px;
+  padding: 8px 18px; border-radius: 20px; cursor: pointer; transition: all 0.2s;
+}
+.prof-follow-btn.following { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); }
+.prof-follow-btn.following:hover { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
+.prof-edit-btn { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); font-size: 12px; padding: 7px 14px; border-radius: 8px; cursor: pointer; transition: all 0.15s; }
+.prof-edit-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+.prof-stats-row { display: flex; gap: 0; border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+.prof-stat { flex: 1; text-align: center; padding: 12px 8px; border-right: 1px solid rgba(255,255,255,0.06); }
+.prof-stat:last-child { border-right: none; }
+.ps-val { display: block; font-size: 20px; font-weight: 800; color: #fff; font-family: monospace; }
+.ps-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.35); margin-top: 2px; }
+
+.prof-section-title { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 10px; }
+.prof-beats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.prof-beat-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 12px; transition: all 0.18s; }
+.prof-beat-card:hover { border-color: rgba(255,106,0,0.3); background: rgba(255,106,0,0.04); }
+.pbc-title { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pbc-meta { display: flex; gap: 8px; margin-bottom: 6px; }
+.pbc-genre { background: rgba(168,85,247,0.12); color: #c084fc; font-size: 9px; padding: 2px 6px; border-radius: 8px; }
+.pbc-stats { display: flex; gap: 8px; font-size: 11px; color: rgba(255,255,255,0.35); margin-bottom: 8px; }
+.pbc-load-btn { width: 100%; background: rgba(255,106,0,0.12); border: 1px solid rgba(255,106,0,0.25); color: #ff8040; font-size: 11px; font-weight: 600; padding: 6px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+.pbc-load-btn:hover { background: rgba(255,106,0,0.22); }
+
+/* ── Profile edit form ────────────────────────────────────────────────────── */
+.prof-edit-section { border-top: 1px solid rgba(255,255,255,0.07); margin-top: 20px; padding-top: 16px; }
+.prof-form { display: flex; flex-direction: column; gap: 8px; max-width: 500px; }
+.char-hint { color: rgba(255,255,255,0.3); font-size: 10px; font-weight: 400; }
+
+/* ── Train Max ────────────────────────────────────────────────────────────── */
+.train-stats-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+.train-stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.train-stat { text-align: center; }
+.ts-val { display: block; font-size: 22px; font-weight: 800; color: #fff; font-family: monospace; }
+.ts-lbl { display: block; font-size: 9px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.train-level-label { font-size: 10px; color: rgba(255,255,255,0.4); margin-bottom: 6px; }
+.train-level-track { height: 6px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; }
+.train-level-fill { height: 100%; background: linear-gradient(90deg, #ff6a00, #a855f7); border-radius: 3px; transition: width 1s ease; }
+.train-level-hint { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 6px; }
+
+.train-submit-section { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.train-section-title { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+.train-hint { font-size: 12px; color: rgba(255,255,255,0.45); line-height: 1.6; margin-bottom: 14px; }
+.train-form { display: flex; flex-direction: column; gap: 8px; }
+
+.train-how-it-works { margin-top: 20px; }
+.train-steps { display: flex; flex-direction: column; gap: 8px; }
+.train-step { display: flex; align-items: center; gap: 10px; font-size: 12px; color: rgba(255,255,255,0.6); }
+.ts-num { width: 24px; height: 24px; background: linear-gradient(135deg, #ff6a00, #a855f7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; }
+
+/* ── Shared inputs ────────────────────────────────────────────────────────── */
+.plat-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.4px; }
+.plat-input {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; padding: 9px 12px; font-size: 12.5px; color: #fff;
+  outline: none; font-family: inherit; transition: border-color 0.2s; width: 100%; box-sizing: border-box;
+}
+.plat-input:focus { border-color: rgba(255,106,0,0.5); }
+.plat-input::placeholder { color: rgba(255,255,255,0.2); }
+.plat-textarea { resize: vertical; min-height: 80px; }
+.plat-btn-primary {
+  background: linear-gradient(135deg, #ff6a00, #ea580c);
+  border: none; color: #fff; font-weight: 700; font-size: 13px;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer;
+  transition: all 0.18s; align-self: flex-start;
+}
+.plat-btn-primary:hover { filter: brightness(1.12); box-shadow: 0 0 16px rgba(255,106,0,0.4); }
+
+/* ── Status messages ──────────────────────────────────────────────────────── */
+.plat-status { font-size: 12px; font-weight: 600; padding: 7px 12px; border-radius: 6px; }
+.plat-status.hidden { display: none; }
+.plat-status.success { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+.plat-status.error   { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+.plat-status.loading { background: rgba(255,106,0,0.1);   color: #fb923c; border: 1px solid rgba(255,106,0,0.2); }
+
+/* ── Loading / empty / error states ──────────────────────────────────────── */
+.plat-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; color: rgba(255,255,255,0.4); font-size: 13px; }
+.plat-spinner { width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #ff6a00; border-radius: 50%; animation: plat-spin 0.7s linear infinite; }
+@keyframes plat-spin { to { transform: rotate(360deg); } }
+.plat-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 48px 20px; color: rgba(255,255,255,0.3); text-align: center; font-size: 13px; }
+.plat-empty span { font-size: 36px; }
+.plat-error { color: #f87171; font-size: 13px; padding: 20px; text-align: center; }
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+#plat-toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  z-index: 30000; background: #1a1d24; border: 1px solid rgba(255,255,255,0.12);
+  color: #fff; font-size: 13px; font-weight: 600; padding: 10px 20px;
+  border-radius: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+}
+#plat-toast.visible { opacity: 1; }
+
+/* ── Platform explore button in toolbar ──────────────────────────────────── */
+#plat-explore-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.3);
+  color: #c084fc; font-size: 11px; font-weight: 700;
+  padding: 4px 11px; border-radius: 5px; cursor: pointer; transition: all 0.18s; height: 26px;
+}
+#plat-explore-tab:hover { background: rgba(168,85,247,0.22); color: #fff; }
+
+#plat-train-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(255,106,0,0.12); border: 1px solid rgba(255,106,0,0.3);
+  color: #fb923c; font-size: 11px; font-weight: 700;
+  padding: 4px 11px; border-radius: 5px; cursor: pointer; transition: all 0.18s; height: 26px;
+}
+#plat-train-btn:hover { background: rgba(255,106,0,0.22); color: #fff; }
+
+.hidden { display: none !important; }
+</style>
 
 </body>
 </html>

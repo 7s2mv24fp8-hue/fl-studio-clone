@@ -8,6 +8,8 @@ A comprehensive music production AI with deep knowledge of:
   - BPM-aware humanization and groove quantization
   - Conversational producer-style response messages
   - Song structure awareness (verse, chorus, bridge hints)
+  - Real drummer patterns from Google Magenta Groove MIDI Dataset
+    (run `python scripts/train_from_groove.py` to train with real music)
 
 No external LLM or API keys required. Runs entirely on-server.
 """
@@ -15,6 +17,16 @@ No external LLM or API keys required. Runs entirely on-server.
 import random
 import re
 from typing import Dict, List, Any, Optional, Tuple
+
+# Real-data blending layer (gracefully no-ops if training hasn't been run)
+try:
+    from backend.pattern_learner import get_best_pattern as _get_real_pattern, is_trained as _is_trained
+except ImportError:
+    try:
+        from pattern_learner import get_best_pattern as _get_real_pattern, is_trained as _is_trained
+    except ImportError:
+        _get_real_pattern = None
+        _is_trained = lambda: False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MUSIC THEORY ENGINE
@@ -983,6 +995,17 @@ def generate_beat_response(prompt: str, current_state: Optional[Dict] = None) ->
         # Apply mood density modifiers
         base_pattern = apply_mood_to_pattern(base_pattern, mood_mod, CHANNELS)
 
+        # ── Blend with real Groove MIDI data if training has been run ─────────
+        if _get_real_pattern is not None and _is_trained():
+            # 60% real drummer data, 40% rule-based (keeps musical intent)
+            base_pattern = _get_real_pattern(
+                genre=genre,
+                rule_based_pattern=base_pattern,
+                use_real=True,
+                blend=0.60,
+            )
+        # ─────────────────────────────────────────────────────────────────────
+
         channels = []
         for ch_name in CHANNELS:
             base_steps = list(base_pattern.get(ch_name, [0] * 16))
@@ -1075,45 +1098,106 @@ def generate_beat_response(prompt: str, current_state: Optional[Dict] = None) ->
 
             result['beat'] = {'bpm': bpm, 'channels': channels}
 
-    # ── Conversational Message ────────────────────────────────────────────────
-    emoji = genre_data.get('emoji', '🎵')
-    description = genre_data.get('description', genre.title())
-    mood_label = f' with a **{mood}** mood' if mood else ''
+    # ── Conversational Message — human, context-aware producer voice ──────────
+    genre_title = genre.title()
+    mood_str    = (mood or '').lower()
+
+    # Mood-specific opener phrases
+    mood_openers = {
+        'dark':        ["Went dark on this one 🖤", "Kept it sinister and heavy", "Dark energy locked in"],
+        'aggressive':  ["Hit hard with this one 🔥", "Turned up the aggression", "Maximum energy activated"],
+        'energetic':   ["Full energy! Let's go 🚀", "High-octane vibes loaded", "This one's got serious drive"],
+        'chill':       ["Kept it smooth and easy 😌", "Laid-back vibes, exactly how you wanted", "Nice and chill"],
+        'dreamy':      ["Floaty and ethereal ✨", "Dreamy atmosphere locked in", "Soft and hazy, just right"],
+        'groovy':      ["Got the groove locked in 🕺", "Funky and bouncy — this slaps", "That groove is infectious"],
+        'melancholic': ["Emotional and introspective 💙", "Something about this feels real", "Melancholic but beautiful"],
+        'uplifting':   ["Uplifting and positive ☀️", "This one's going to make people smile", "Pure positive energy"],
+        'minimal':     ["Less is more — kept it stripped back", "Minimal but effective ✦", "Space is the groove here"],
+        'epic':        ["EPIC. Full cinematic energy 🎬", "This hits different — massive", "Went full cinematic on this"],
+        'funky':       ["Oh this is FUNKY 🎸", "Funky groove secured", "That bass line is everything"],
+        'atmospheric': ["Wide and atmospheric 🌌", "Beautiful atmosphere created", "Feels like a whole world"],
+    }
+
+    # Genre-specific flavor phrases
+    genre_flavor = {
+        'trap':       ["Those 808s are gonna shake the walls.", "Classic trap infrastructure — ready to layer vocals.", "Metro would approve."],
+        'drill':      ["That sliding bass will cut through anything.", "Dark and menacing — exactly what drill is about.", "UK energy in the grid."],
+        'hip-hop':    ["Boom bap foundation is solid.", "This groove has real character.", "Head-nodding energy in every step."],
+        'lo-fi':      ["Perfect for a late-night session.", "That swing feels natural and human.", "Vinyl warmth is built in — just vibe."],
+        'house':      ["That four-on-the-floor is gonna move the floor.", "Soulful and driving at the same time.", "Club-ready from bar one."],
+        'techno':     ["Industrial and relentless — just how techno should be.", "That kick is going to flatten a warehouse.", "Mechanical precision locked in."],
+        'drum & bass':["Fast and rolling — that's the DnB feel.", "Those breaks are going to tear it up.", "Liquid or neuro — this works both ways."],
+        'reggaeton':  ["That dembow rhythm is infectious.", "Pure Latin energy in the pattern.", "The hips don't lie with this groove."],
+        'afrobeats':  ["Polyrhythmic and alive — pure afrobeats DNA.", "That high-life energy is in the groove.", "This pattern wants to make you move."],
+        'synthwave':  ["Neon-soaked and retro-futuristic 🌆", "Kavinsky would nod at this.", "80s nostalgia dialed in perfectly."],
+        'phonk':      ["Memphis DNA in every hit.", "That cowbell energy is pure phonk.", "Dark, gritty, and hard — exactly right."],
+        'ambient':    ["Spacious and breathing — let the sound live.", "Perfect for focus or meditation.", "Atmosphere over density — beautiful."],
+        'r&b':        ["Smooth and soulful — the groove has feeling.", "Neo-soul textures built in.", "This wants to slow dance."],
+        'pop':        ["Radio-ready from the jump.", "Catchy, clear, and professional.", "Hook potential is high with this pattern."],
+        'rock':       ["Power and grit — classic rock DNA.", "Those drums want to be played loud.", "Toms are gonna hit hard in the fills."],
+        'jazz':       ["Swinging and conversational — jazz at its core.", "That swing feels like a real drummer.", "Complex but accessible — beautiful."],
+        'uk garage':  ["That 2-step is skippy and infectious.", "Classic UK garage skeleton ready to build on.", "Vocal chops are going to go crazy on this."],
+        'electronic': ["Driving and energetic — EDM foundation solid.", "Filter sweeps are going to transform this.", "Drop potential is massive."],
+        'latin':      ["The clave rhythm anchors everything perfectly.", "Latin fire in every hit.", "This makes you want to dance."],
+        'gospel':     ["Uplifting and spiritual — the choir is going to love this.", "Soul in every step.", "Music that moves more than your feet."],
+    }
+
+    opener = random.choice(mood_openers.get(mood_str, ["Alright, check this out", "Got you covered", "Here's what I cooked up"]))
+    flavor = random.choice(genre_flavor.get(genre, ["Pattern is dialed in and ready."]))
 
     if action == 'mix':
-        result['message'] = (
-            f"{emoji} Mixed and mastered your **{genre.title()}** production! "
-            f"Volumes, stereo panning, and balance are dialed in for a professional sound."
-        )
-    elif action == 'variation':
-        result['message'] = (
-            f"{emoji} Added creative variation to your pattern! "
-            f"Modified hits, fills, and velocities while keeping the {genre.title()} core groove."
-        )
-    elif action == 'beat':
-        result['message'] = (
-            f"{emoji} Created an authentic **{genre.title()}** beat at **{bpm} BPM**{mood_label}! "
-            f"{description}."
-        )
-    else:
-        result['message'] = (
-            f"{emoji} Full **{genre.title()}** production at **{bpm} BPM**{mood_label}! "
-            f"{description}. Beat patterns, melodic elements, and professional mix ready."
-        )
+        mix_pool = [
+            f"Mixed and balanced your {genre_title} session — kick is punchy, stereo field is wide, everything sits right in the pocket.",
+            f"Dialed in the levels for you. {genre_title} needs that specific balance and I got it right. Bass is tight, highs are crisp.",
+            f"Your {genre_title} mix is sorted — volumes, panning, the whole thing. Should translate well on any speakers.",
+            f"Mix done! Hi-hats panned for stereo width, kick sitting front and center. Professional sound, ready to bounce.",
+        ]
+        result['message'] = random.choice(mix_pool)
 
-    # ── Producer Tips ─────────────────────────────────────────────────────────
+    elif action == 'variation':
+        var_pool = [
+            f"Flipped the pattern a bit — kept the core {genre_title} groove but added some unexpected hits and fills. Keeps it interesting.",
+            f"Variation locked in. Same vibe, different texture. Those subtle changes make it sound less repetitive over 4 bars.",
+            f"Switched things up without losing the {genre_title} feel. Ghost notes on the snare, some hi-hat movement, fresh energy.",
+            f"Added some flavor to your pattern — a few fills here, some syncopation there. Should feel more alive now.",
+        ]
+        result['message'] = random.choice(var_pool)
+
+    elif action == 'beat':
+        beat_pool = [
+            f"{opener} — {genre_title} at {bpm} BPM. {flavor}",
+            f"Laid down a {genre_title} pattern at {bpm} BPM for you. {flavor}",
+            f"Here's your {genre_title} beat — {bpm} BPM, proper {genre_title} DNA in every hit. {flavor}",
+            f"{genre_title} pattern ready at {bpm} BPM. {opener.lower().rstrip('.')}. {flavor}",
+        ]
+        result['message'] = random.choice(beat_pool)
+
+    else:  # full production
+        full_pool = [
+            f"{opener} — {genre_title} at {bpm} BPM, full production. {flavor} Mix is dialed in, levels are balanced, ready to record over.",
+            f"Full {genre_title} production at {bpm} BPM. {flavor} Beat patterns, bass, lead, and mix settings all sorted.",
+            f"Here's the full {genre_title} session — {bpm} BPM. {opener.lower().rstrip('.')}. {flavor} Everything from the drums to the mix is ready.",
+            f"{genre_title} production locked at {bpm} BPM. {flavor} Full arrangement with professional mix — let's hear it.",
+        ]
+        result['message'] = random.choice(full_pool)
+
+    # ── Producer Tips — specific, actionable, not generic ─────────────────────
     tips = list(genre_data.get('tips', []))
     random.shuffle(tips)
 
-    # Add scale/theory tip
     scale_options = GENRE_SCALES.get(genre, ['minor', 'major'])
     suggested_scale = random.choice(scale_options)
     theory_tips = [
-        f"Try a {suggested_scale} scale for your melodies on the Lead channel",
-        f"Experiment with a {suggested_scale} scale for your bassline in the Piano Roll",
-        f"The {suggested_scale} scale works beautifully with this {genre.title()} groove",
+        f"Try a {suggested_scale} scale on the Piano Roll for your Lead melody — matches this {genre_title} feel perfectly",
+        f"{suggested_scale.replace('_', ' ').title()} scale on the Bass will lock in with these drum hits",
+        f"Open Piano Roll on the Lead channel and try {suggested_scale.replace('_', ' ')} — it's going to sound right at home",
     ]
-    tips.insert(random.randint(0, len(tips)), random.choice(theory_tips))
+    if mood_str in ('dark', 'aggressive', 'melancholic'):
+        theory_tips.append(f"Phrygian or natural minor will really nail that {mood_str or 'dark'} feeling you're going for")
+    elif mood_str in ('uplifting', 'happy', 'groovy'):
+        theory_tips.append(f"Major pentatonic is going to keep this feeling bright and {mood_str} — try it on the Lead")
+
+    tips.insert(random.randint(0, max(1, len(tips))), random.choice(theory_tips))
 
     result['suggestions'] = tips[:3]
 

@@ -1,18 +1,12 @@
 /**
- * FL Studio Clone — AI Producer (LLM-Powered Beat Making & Mix-Mastering)
- *
- * Four components:
- *  1. GeminiClient   — API client for Google Gemini structured output
- *  2. BeatGenerator  — Applies LLM-generated patterns to the sequencer
- *  3. MixMaster      — Applies LLM-generated mix/master settings
- *  4. AIProducer     — Orchestrator with conversation history & undo
+ * BeYou Studio — AI Producer v3
+ * Human-friendly chat with a real music producer feel.
+ * Four clients: BeYou (built-in) | Gemini | Ollama | LM Studio
  */
 
 'use strict';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const AI_PRODUCER_CHANNELS = ['Kick', 'Clap', 'Hi-Hat C', 'Hi-Hat O', 'Snare', 'Tom', 'Bass', 'Lead'];
 
@@ -29,703 +23,330 @@ const AI_PRODUCER_MOODS = [
 
 const AI_PRODUCER_ACTIONS = [
   { id: 'full',      icon: '🚀', label: 'Full Production',  desc: 'Beat + Arrangement + Mix' },
-  { id: 'beat',      icon: '🥁', label: 'Generate Beat',     desc: 'Create drum & melodic patterns' },
-  { id: 'mix',       icon: '🎚️', label: 'Mix & Master',      desc: 'Auto-level, pan, EQ, compress' },
-  { id: 'variation', icon: '🔄', label: 'Add Variation',     desc: 'Modify current pattern' },
-  { id: 'random',    icon: '🎲', label: 'Surprise Me',       desc: 'Random genre & style' },
+  { id: 'beat',      icon: '🥁', label: 'Generate Beat',    desc: 'Create drum & melodic patterns' },
+  { id: 'mix',       icon: '🎚️', label: 'Mix & Master',     desc: 'Auto-level, pan, balance' },
+  { id: 'variation', icon: '🔄', label: 'Add Variation',    desc: 'Modify current pattern' },
+  { id: 'random',    icon: '🎲', label: 'Surprise Me',      desc: 'Random genre & style' },
 ];
 
-const GEMINI_SYSTEM_PROMPT = `You are an expert music producer AI integrated into a DAW (Digital Audio Workstation). 
-You create beats, arrange patterns, and mix-master tracks.
+// Prompt starters shown in the chat welcome screen
+const PROMPT_STARTERS = [
+  { emoji: '🔥', text: 'Dark trap beat at 140 BPM' },
+  { emoji: '😌', text: 'Chill lo-fi hip hop groove' },
+  { emoji: '🎸', text: 'Hard rock with heavy toms' },
+  { emoji: '🌆', text: 'Synthwave 80s retro vibes' },
+  { emoji: '🕺', text: 'Funky house, four-on-the-floor' },
+  { emoji: '💙', text: 'Emotional R&B at 75 BPM' },
+];
 
-The DAW has 8 channels with 16 steps each:
-- Channel 0: Kick (drum)
-- Channel 1: Clap (drum)
-- Channel 2: Hi-Hat Closed (drum)
-- Channel 3: Hi-Hat Open (drum)
-- Channel 4: Snare (drum)
-- Channel 5: Tom (drum)
-- Channel 6: Bass (synth/bass)
-- Channel 7: Lead (synth/melody)
+const GEMINI_SYSTEM_PROMPT = `You are an expert music producer AI inside a DAW (Digital Audio Workstation).
+The DAW has 8 channels (16 steps each): Kick, Clap, Hi-Hat Closed, Hi-Hat Open, Snare, Tom, Bass, Lead.
+Steps: 0=off, 1=on. Velocity: 0.0-1.0.
 
-Each step can be ON (1) or OFF (0). Velocity is a float from 0.0 to 1.0.
-
-RULES FOR BEAT GENERATION:
-- Always create musically coherent patterns
-- Kick patterns should anchor the groove
-- Snare/Clap typically on beats 2 and 4 (steps 4,12 in 0-indexed) for most genres
-- Hi-hats create rhythmic texture
-- Bass should complement the kick pattern
-- Lead should add melodic interest without clashing with drums
-- Use velocity variation for dynamics and groove (accent beats louder)
-- Match BPM to the genre (e.g., Trap: 130-160, House: 120-130, Hip-Hop: 80-100)
-
-RULES FOR MIX-MASTERING:
-- Set volumes so drums sit well together (kick loudest, hats quieter)
-- Pan hi-hats slightly for stereo width
-- Bass and kick should be centered (pan = 0)
-- Lead can be slightly panned
-- Volume values: 0.0 to 1.0
-- Pan values: -1.0 (left) to 1.0 (right)
-
-You MUST respond with valid JSON in this exact schema:
-
+Respond ONLY with valid JSON:
 {
-  "message": "Your friendly explanation of what you created/changed",
-  "beat": {
-    "bpm": <number 60-200>,
-    "channels": [
-      {
-        "name": "<channel name>",
-        "steps": [0 or 1, ... 16 values],
-        "velocity": [0.0-1.0, ... 16 values]
-      }
-    ]
-  },
-  "mix": {
-    "master_volume": <0.0-1.0>,
-    "channels": [
-      {
-        "name": "<channel name>",
-        "volume": <0.0-1.0>,
-        "pan": <-1.0 to 1.0>,
-        "muted": <boolean>
-      }
-    ]
-  },
-  "suggestions": ["<suggestion 1>", "<suggestion 2>", ...]
+  "message": "Casual, friendly 1-2 sentence producer response",
+  "beat": { "bpm": <60-200>, "channels": [{"name":"<name>","steps":[16 values],"velocity":[16 values]}] },
+  "mix": { "master_volume": <0-1>, "channels": [{"name":"<name>","volume":<0-1>,"pan":<-1 to 1>,"muted":false}] },
+  "suggestions": ["short actionable tip 1", "tip 2", "tip 3"]
+}
+Include "beat" only when generating beats. Include "mix" only when mixing. Always include "message" and "suggestions".
+Keep message casual, like a real producer texting — no markdown bold or emoji spam.`;
+
+// ─── JSON parsing helper ─────────────────────────────────────────────────────
+
+function parseLLMJSON(text) {
+  if (!text) throw new Error('Empty AI response');
+  try { return JSON.parse(text); } catch (_) {}
+  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (m) { try { return JSON.parse(m[1].trim()); } catch (__) {} }
+  const s = text.indexOf('{'), e = text.lastIndexOf('}');
+  if (s !== -1 && e > s) { try { return JSON.parse(text.slice(s, e + 1)); } catch (___) {} }
+  throw new Error('Could not parse AI response');
 }
 
-Include "beat" only if generating/modifying beats. Include "mix" only if mixing/mastering.
-Always include "message" and "suggestions".
-If the user just chats or asks questions, return only "message" and "suggestions" with no beat/mix.`;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared JSON parsing helper for all LLM clients
-function parseLLMJSON(textContent) {
-  if (!textContent || typeof textContent !== 'string') {
-    throw new Error('Empty or invalid response from AI');
-  }
-  try {
-    return JSON.parse(textContent);
-  } catch (_) {
-    // 1. Check for markdown code fence ```json ... ```
-    const jsonMatch = textContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1].trim());
-      } catch (__) {}
-    }
-    // 2. Fallback: extract first { to last }
-    const start = textContent.indexOf('{');
-    const end = textContent.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(textContent.slice(start, end + 1));
-      } catch (___) {}
-    }
-    throw new Error('Could not parse AI response as JSON. Output was: ' + textContent.slice(0, 100));
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. LLM CLIENTS (Cloud Gemini, Local Ollama, Local OpenAI-Compatible)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 1. GEMINI CLIENT ────────────────────────────────────────────────────────
 
 class GeminiClient {
   constructor() {
-    this.apiKey = localStorage.getItem('fl-studio-gemini-key') || '';
+    this.apiKey = localStorage.getItem('beyou-gemini-key') || '';
     this.model  = 'gemini-2.0-flash';
-    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
-    this._abortCtrl = null;
+    this.base   = 'https://generativelanguage.googleapis.com/v1beta/models';
+    this._ctrl  = null;
   }
-
-  setApiKey(key) {
-    this.apiKey = key.trim();
-    localStorage.setItem('fl-studio-gemini-key', this.apiKey);
-  }
-
-  hasKey() { return this.apiKey.length > 0; }
+  setApiKey(k) { this.apiKey = k; localStorage.setItem('beyou-gemini-key', k); }
+  hasKey() { return this.apiKey.length > 10; }
 
   async testConnection() {
-    if (!this.hasKey()) {
-      return { ok: false, message: 'No Gemini API key configured.' };
-    }
     try {
-      const resp = await fetch(`${this.baseUrl}/${this.model}?key=${this.apiKey}`);
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        return { ok: false, message: err.error?.message || `HTTP ${resp.status}` };
-      }
-      return { ok: true, message: `Connected to Google Gemini (${this.model})` };
-    } catch (err) {
-      return { ok: false, message: err.message };
-    }
+      const r = await fetch(`${this.base}/${this.model}?key=${this.apiKey}`);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, message: e.error?.message || `HTTP ${r.status}` }; }
+      return { ok: true, message: '✅ Gemini is connected and ready!' };
+    } catch (e) { return { ok: false, message: `Connection failed: ${e.message}` }; }
   }
 
   async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
-    if (!this.hasKey()) throw new Error('No Gemini API key set');
-
-    if (this._abortCtrl) this._abortCtrl.abort();
-    this._abortCtrl = new AbortController();
-
-    const url = `${this.baseUrl}/${this.model}:generateContent?key=${this.apiKey}`;
-
+    if (this._ctrl) this._ctrl.abort();
+    this._ctrl = new AbortController();
+    onStatus('thinking');
     const contents = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.text }],
     }));
-
-    const body = {
-      system_instruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents,
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.9,
-        topP: 0.95,
-        maxOutputTokens: 4096,
-      },
-    };
-
-    onStatus('thinking');
-
     try {
-      const resp = await fetch(url, {
+      const r = await fetch(`${this.base}/${this.model}:generateContent?key=${this.apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: this._abortCtrl.signal,
+        signal: this._ctrl.signal,
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
+        }),
       });
-
-      if (resp.status === 429) {
-        throw new Error('Rate limit reached. Please wait a moment and try again.');
-      }
-      if (resp.status === 401 || resp.status === 403) {
-        throw new Error('Invalid Gemini API key. Check your key at ai.google.dev.');
-      }
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!textContent) throw new Error('Empty response from Gemini');
-
-      const parsed = parseLLMJSON(textContent);
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+      const d = await r.json();
       onStatus('done');
-      this._abortCtrl = null;
-      return parsed;
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        onStatus('cancelled');
-        throw new Error('Request cancelled');
-      }
-      onStatus('error');
-      this._abortCtrl = null;
-      throw err;
+      this._ctrl = null;
+      return parseLLMJSON(d.candidates?.[0]?.content?.parts?.[0]?.text || '');
+    } catch (e) {
+      if (e.name === 'AbortError') { onStatus('cancelled'); throw new Error('Cancelled'); }
+      onStatus('error'); this._ctrl = null; throw e;
     }
   }
-
-  cancel() {
-    if (this._abortCtrl) {
-      this._abortCtrl.abort();
-      this._abortCtrl = null;
-    }
-  }
+  cancel() { if (this._ctrl) { this._ctrl.abort(); this._ctrl = null; } }
 }
 
-/**
- * Client for local Ollama instances (e.g. running chatmusician, llama3, mistral, qwen2.5)
- */
+// ─── 2. OLLAMA CLIENT ────────────────────────────────────────────────────────
+
 class OllamaClient {
   constructor() {
-    this.baseUrl = localStorage.getItem('fl-studio-ollama-url') || 'http://localhost:11434';
-    this.model   = localStorage.getItem('fl-studio-ollama-model') || 'chatmusician';
-    this._abortCtrl = null;
+    this.base  = localStorage.getItem('beyou-ollama-url') || 'http://localhost:11434';
+    this.model = localStorage.getItem('beyou-ollama-model') || 'chatmusician';
+    this._ctrl = null;
   }
-
   setConfig(url, model) {
-    if (url !== undefined) {
-      this.baseUrl = (url.trim() || 'http://localhost:11434').replace(/\/+$/, '');
-      localStorage.setItem('fl-studio-ollama-url', this.baseUrl);
-    }
-    if (model !== undefined) {
-      this.model = model.trim() || 'chatmusician';
-      localStorage.setItem('fl-studio-ollama-model', this.model);
-    }
+    if (url  !== undefined) { this.base  = (url  || 'http://localhost:11434').replace(/\/+$/, ''); localStorage.setItem('beyou-ollama-url', this.base); }
+    if (model !== undefined) { this.model = model || 'chatmusician'; localStorage.setItem('beyou-ollama-model', this.model); }
   }
-
   async fetchModels() {
-    try {
-      const resp = await fetch(`${this.baseUrl}/api/tags`, { method: 'GET' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return (data.models || []).map(m => m.name);
-    } catch (err) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error('Could not reach Ollama. Ensure Ollama is running and CORS is enabled via OLLAMA_ORIGINS="*" ollama serve.');
-      }
-      throw err;
-    }
+    const r = await fetch(`${this.base}/api/tags`);
+    const d = await r.json();
+    return (d.models || []).map(m => m.name);
   }
-
   async testConnection() {
     try {
       const models = await this.fetchModels();
-      const hasSelected = models.some(m => m.toLowerCase().includes(this.model.toLowerCase()));
-      return {
-        ok: true,
-        message: `Connected to Ollama! Found ${models.length} model(s).` +
-          (hasSelected ? ` (Model "${this.model}" found)` : ` (Tip: '${this.model}' not in local tags, will attempt or choose from list)`),
-        models,
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        message: err.message,
-      };
-    }
+      return { ok: true, message: `✅ Ollama connected! ${models.length} model(s) available.` };
+    } catch (e) { return { ok: false, message: `Can't reach Ollama at ${this.base}. Is it running?` }; }
   }
-
   async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
-    if (this._abortCtrl) this._abortCtrl.abort();
-    this._abortCtrl = new AbortController();
-
-    const url = `${this.baseUrl}/api/chat`;
+    if (this._ctrl) this._ctrl.abort();
+    this._ctrl = new AbortController();
+    onStatus('thinking');
     const ollamaMessages = [
       { role: 'system', content: systemPrompt },
-      ...messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      })),
+      ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
     ];
-
-    const body = {
-      model: this.model,
-      messages: ollamaMessages,
-      format: 'json',
-      stream: false,
-      options: {
-        temperature: 0.8,
-      },
-    };
-
-    onStatus('thinking');
-
     try {
-      const resp = await fetch(url, {
-        method: 'POST',
+      const r = await fetch(`${this.base}/api/chat`, {
+        method: 'POST', signal: this._ctrl.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: this._abortCtrl.signal,
+        body: JSON.stringify({ model: this.model, messages: ollamaMessages, stream: false, format: 'json' }),
       });
-
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error || `HTTP ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      const textContent = data.message?.content;
-      if (!textContent) throw new Error('Empty response from Ollama');
-
-      const parsed = parseLLMJSON(textContent);
-      onStatus('done');
-      this._abortCtrl = null;
-      return parsed;
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        onStatus('cancelled');
-        throw new Error('Request cancelled');
-      }
-      onStatus('error');
-      this._abortCtrl = null;
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error(`Cannot connect to Ollama at ${this.baseUrl}. Make sure Ollama is running with CORS enabled (OLLAMA_ORIGINS="*" ollama serve).`);
-      }
-      throw err;
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`); }
+      const d = await r.json();
+      onStatus('done'); this._ctrl = null;
+      return parseLLMJSON(d.message?.content || '');
+    } catch (e) {
+      if (e.name === 'AbortError') { onStatus('cancelled'); throw new Error('Cancelled'); }
+      onStatus('error'); this._ctrl = null;
+      if (e.message.includes('fetch') || e.message.includes('Network')) throw new Error(`Can't connect to Ollama at ${this.base}. Run: OLLAMA_ORIGINS="*" ollama serve`);
+      throw e;
     }
   }
-
-  cancel() {
-    if (this._abortCtrl) {
-      this._abortCtrl.abort();
-      this._abortCtrl = null;
-    }
-  }
+  cancel() { if (this._ctrl) { this._ctrl.abort(); this._ctrl = null; } }
 }
 
-/**
- * Client for OpenAI-compatible local servers (LM Studio, LocalAI, vLLM, text-generation-webui)
- */
+// ─── 3. LOCAL OPENAI-COMPATIBLE CLIENT (LM Studio, LocalAI) ─────────────────
+
 class OpenAICompatClient {
   constructor() {
-    this.baseUrl = localStorage.getItem('fl-studio-local-openai-url') || 'http://localhost:1234/v1';
-    this.model   = localStorage.getItem('fl-studio-local-openai-model') || 'local-model';
-    this._abortCtrl = null;
+    this.base  = localStorage.getItem('beyou-local-openai-url') || 'http://localhost:1234/v1';
+    this.model = localStorage.getItem('beyou-local-openai-model') || 'local-model';
+    this._ctrl = null;
   }
-
   setConfig(url, model) {
-    if (url !== undefined) {
-      this.baseUrl = (url.trim() || 'http://localhost:1234/v1').replace(/\/+$/, '');
-      localStorage.setItem('fl-studio-local-openai-url', this.baseUrl);
-    }
-    if (model !== undefined) {
-      this.model = model.trim() || 'local-model';
-      localStorage.setItem('fl-studio-local-openai-model', this.model);
-    }
+    if (url   !== undefined) { this.base  = (url  || 'http://localhost:1234/v1').replace(/\/+$/, ''); localStorage.setItem('beyou-local-openai-url', this.base); }
+    if (model !== undefined) { this.model = model || 'local-model'; localStorage.setItem('beyou-local-openai-model', this.model); }
   }
-
   async fetchModels() {
-    try {
-      const resp = await fetch(`${this.baseUrl}/models`, { method: 'GET' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return (data.data || []).map(m => m.id);
-    } catch (err) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error(`Cannot connect to server at ${this.baseUrl}. Check if your local server is running with CORS enabled.`);
-      }
-      throw err;
-    }
+    const r = await fetch(`${this.base}/models`);
+    const d = await r.json();
+    return (d.data || []).map(m => m.id);
   }
-
   async testConnection() {
     try {
-      const models = await this.fetchModels();
-      return {
-        ok: true,
-        message: `Connected! Found ${models.length} model(s) on local server.`,
-        models,
-      };
-    } catch (err) {
-      return {
-        ok: false,
-        message: err.message,
-      };
-    }
+      await this.fetchModels();
+      return { ok: true, message: `✅ Local server connected at ${this.base}!` };
+    } catch (e) { return { ok: false, message: `Can't reach server at ${this.base}. Is it running with CORS enabled?` }; }
   }
-
   async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
-    if (this._abortCtrl) this._abortCtrl.abort();
-    this._abortCtrl = new AbortController();
-
-    const url = `${this.baseUrl}/chat/completions`;
-    const openAIMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      })),
-    ];
-
-    const body = {
-      model: this.model,
-      messages: openAIMessages,
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
-    };
-
+    if (this._ctrl) this._ctrl.abort();
+    this._ctrl = new AbortController();
     onStatus('thinking');
-
+    const body = {
+      model: this.model, stream: false, temperature: 0.8,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
+      ],
+      response_format: { type: 'json_object' },
+    };
     try {
-      const resp = await fetch(url, {
-        method: 'POST',
+      const r = await fetch(`${this.base}/chat/completions`, {
+        method: 'POST', signal: this._ctrl.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: this._abortCtrl.signal,
       });
-
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.error?.message || `HTTP ${resp.status}`);
-      }
-
-      const data = await resp.json();
-      const textContent = data.choices?.[0]?.message?.content;
-      if (!textContent) throw new Error('Empty response from local LLM');
-
-      const parsed = parseLLMJSON(textContent);
-      onStatus('done');
-      this._abortCtrl = null;
-      return parsed;
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        onStatus('cancelled');
-        throw new Error('Request cancelled');
-      }
-      onStatus('error');
-      this._abortCtrl = null;
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        throw new Error(`Cannot connect to local LLM server at ${this.baseUrl}. Make sure LM Studio / LocalAI is running and CORS is enabled.`);
-      }
-      throw err;
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+      const d = await r.json();
+      onStatus('done'); this._ctrl = null;
+      return parseLLMJSON(d.choices?.[0]?.message?.content || '');
+    } catch (e) {
+      if (e.name === 'AbortError') { onStatus('cancelled'); throw new Error('Cancelled'); }
+      onStatus('error'); this._ctrl = null; throw e;
     }
   }
-
-  cancel() {
-    if (this._abortCtrl) {
-      this._abortCtrl.abort();
-      this._abortCtrl = null;
-    }
-  }
+  cancel() { if (this._ctrl) { this._ctrl.abort(); this._ctrl = null; } }
 }
 
-/**
- * BeYou Built-in Music AI Client — calls the server-side AI endpoint.
- * No API keys, no external LLMs, no configuration needed!
- */
+// ─── 4. BEYOU BUILT-IN CLIENT ────────────────────────────────────────────────
+
 class BeYouClient {
-  constructor() {
-    this.baseUrl = '';
-    this._abortCtrl = null;
-  }
+  constructor() { this._ctrl = null; }
 
   async testConnection() {
     try {
-      const resp = await fetch('/health');
-      if (!resp.ok) throw new Error(`Server unreachable (HTTP ${resp.status})`);
-      const data = await resp.json();
-      return { ok: true, message: `✅ Connected to BeYou Music AI Engine (v2)! 20 genres loaded.` };
-    } catch (err) {
-      return { ok: false, message: `Server connection failed: ${err.message}` };
-    }
+      const r = await fetch('/health');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return { ok: true, message: '✅ BeYou Music AI is ready — 20 genres, trained on real drummer data.' };
+    } catch (e) { return { ok: false, message: `Server offline: ${e.message}` }; }
   }
 
   async chat(messages, systemPrompt, { onStatus = () => {} } = {}) {
-    if (this._abortCtrl) this._abortCtrl.abort();
-    this._abortCtrl = new AbortController();
+    if (this._ctrl) this._ctrl.abort();
+    this._ctrl = new AbortController();
 
-    // Extract the last user message as the main prompt
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    let prompt = lastUserMsg?.text || 'make a beat';
-
-    // Enrich prompt with genre/mood context extracted from system prompt
+    // Extract last user message and enrich with genre/mood context
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    let prompt = lastUser?.text || 'make a beat';
     if (systemPrompt) {
-      const genreMatch = systemPrompt.match(/selected genre\(s\):\s*([^\n]+)/i);
-      const moodMatch  = systemPrompt.match(/selected mood\(s\):\s*([^\n]+)/i);
-      const bpmMatch   = systemPrompt.match(/BPM:\s*(\d+)/i);
-
-      const contextParts = [];
-      if (genreMatch) contextParts.push(genreMatch[1].trim().toLowerCase());
-      if (moodMatch)  contextParts.push(moodMatch[1].trim().toLowerCase());
-      if (bpmMatch)   contextParts.push(`${bpmMatch[1]} bpm`);
-
-      // Only prepend context if the prompt doesn't already mention genre/BPM
-      if (contextParts.length > 0 && !prompt.includes('bpm') && prompt.length < 80) {
-        prompt = `${contextParts.join(' ')} ${prompt}`.trim();
+      const genreM = systemPrompt.match(/selected genre\(s\):\s*([^\n]+)/i);
+      const moodM  = systemPrompt.match(/selected mood\(s\):\s*([^\n]+)/i);
+      const bpmM   = systemPrompt.match(/BPM:\s*(\d+)/i);
+      const parts = [];
+      if (genreM) parts.push(genreM[1].trim().toLowerCase());
+      if (moodM)  parts.push(moodM[1].trim().toLowerCase());
+      if (bpmM)   parts.push(`${bpmM[1]} bpm`);
+      if (parts.length > 0 && !prompt.includes('bpm') && prompt.length < 80) {
+        prompt = `${parts.join(' ')} ${prompt}`.trim();
       }
     }
 
     onStatus('composing');
-
     try {
-      const resp = await fetch('/api/ai/produce', {
+      const r = await fetch('/api/ai/produce', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
-        signal: this._abortCtrl.signal,
+        signal: this._ctrl.signal,
       });
-
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        throw new Error(errBody.detail || `Server error HTTP ${resp.status}`);
-      }
-
-      const result = await resp.json();
-      onStatus('done');
-      this._abortCtrl = null;
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `Server error HTTP ${r.status}`); }
+      const result = await r.json();
+      onStatus('done'); this._ctrl = null;
       return result;
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        onStatus('cancelled');
-        throw new Error('Request cancelled');
-      }
-      onStatus('error');
-      this._abortCtrl = null;
-      throw err;
+    } catch (e) {
+      if (e.name === 'AbortError') { onStatus('cancelled'); throw new Error('Cancelled'); }
+      onStatus('error'); this._ctrl = null; throw e;
     }
   }
-
-  cancel() {
-    if (this._abortCtrl) {
-      this._abortCtrl.abort();
-      this._abortCtrl = null;
-    }
-  }
+  cancel() { if (this._ctrl) { this._ctrl.abort(); this._ctrl = null; } }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. BEAT GENERATOR
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 5. BEAT GENERATOR ───────────────────────────────────────────────────────
 
 class BeatGenerator {
-  /**
-   * Apply beat data from LLM to the sequencer.
-   * @param {object} beatData - { bpm, channels: [{ name, steps, velocity }] }
-   * @param {Sequencer} sequencer
-   */
   static apply(beatData, sequencer) {
     if (!beatData || !sequencer) return;
-
-    // Set BPM
-    if (beatData.bpm && beatData.bpm >= 20 && beatData.bpm <= 300) {
-      sequencer.setBPM(beatData.bpm);
-    }
-
-    // Apply channel patterns
-    if (beatData.channels && Array.isArray(beatData.channels)) {
-      beatData.channels.forEach(chData => {
-        const chIdx = AI_PRODUCER_CHANNELS.findIndex(
-          n => n.toLowerCase() === (chData.name || '').toLowerCase()
-        );
-        if (chIdx === -1 || !sequencer.channels[chIdx]) return;
-
-        const ch = sequencer.channels[chIdx];
-
-        // Apply steps
-        if (chData.steps && Array.isArray(chData.steps)) {
-          for (let i = 0; i < Math.min(16, chData.steps.length); i++) {
-            ch.steps[i] = chData.steps[i] ? 1 : 0;
-          }
-        }
-
-        // Apply velocities
-        if (chData.velocity && Array.isArray(chData.velocity)) {
-          for (let i = 0; i < Math.min(16, chData.velocity.length); i++) {
-            ch.velocity[i] = Math.max(0, Math.min(1, chData.velocity[i] || 0.8));
-          }
-        }
-      });
-    }
+    if (beatData.bpm >= 20 && beatData.bpm <= 300) sequencer.setBPM(beatData.bpm);
+    if (!Array.isArray(beatData.channels)) return;
+    beatData.channels.forEach(chData => {
+      const idx = AI_PRODUCER_CHANNELS.findIndex(n => n.toLowerCase() === (chData.name || '').toLowerCase());
+      if (idx === -1 || !sequencer.channels[idx]) return;
+      const ch = sequencer.channels[idx];
+      if (Array.isArray(chData.steps)) {
+        for (let i = 0; i < Math.min(16, chData.steps.length); i++) ch.steps[i] = chData.steps[i] ? 1 : 0;
+      }
+      if (Array.isArray(chData.velocity)) {
+        for (let i = 0; i < Math.min(16, chData.velocity.length); i++) ch.velocity[i] = Math.max(0, Math.min(1, chData.velocity[i] || 0.8));
+      }
+    });
   }
-
-  /**
-   * Snapshot the current sequencer state for undo.
-   */
   static snapshot(sequencer) {
     return {
       bpm: sequencer.bpm,
-      channels: sequencer.channels.map(ch => ({
-        name: ch.name,
-        steps: [...ch.steps],
-        velocity: [...ch.velocity],
-        muted: ch.muted,
-        solo: ch.solo,
-      })),
+      channels: sequencer.channels.map(ch => ({ name: ch.name, steps: [...ch.steps], velocity: [...ch.velocity], muted: ch.muted, solo: ch.solo })),
     };
   }
-
-  /**
-   * Restore a snapshot.
-   */
-  static restore(snapshot, sequencer) {
-    if (!snapshot) return;
-    sequencer.setBPM(snapshot.bpm);
-    snapshot.channels.forEach((snap, i) => {
+  static restore(snap, sequencer) {
+    if (!snap) return;
+    sequencer.setBPM(snap.bpm);
+    snap.channels.forEach((s, i) => {
       const ch = sequencer.channels[i];
       if (!ch) return;
-      ch.steps = [...snap.steps];
-      ch.velocity = [...snap.velocity];
-      ch.muted = snap.muted;
-      ch.solo = snap.solo;
+      ch.steps = [...s.steps]; ch.velocity = [...s.velocity]; ch.muted = s.muted; ch.solo = s.solo;
     });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. MIX MASTER
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 6. MIX MASTER ───────────────────────────────────────────────────────────
 
 class MixMaster {
-  /**
-   * Apply mix settings from LLM to the mixer and audio engine.
-   * @param {object} mixData - { master_volume, channels: [{ name, volume, pan, muted }] }
-   * @param {Sequencer} sequencer
-   * @param {AudioEngine} audioEngine
-   */
   static apply(mixData, sequencer, audioEngine) {
-    if (!mixData || !sequencer) return;
-
-    // Master volume
-    if (mixData.master_volume !== undefined && audioEngine) {
-      audioEngine.setMasterVolume(Math.max(0, Math.min(1, mixData.master_volume)));
-    }
-
-    // Per-channel mix
-    if (mixData.channels && Array.isArray(mixData.channels)) {
-      mixData.channels.forEach(chMix => {
-        const chIdx = AI_PRODUCER_CHANNELS.findIndex(
-          n => n.toLowerCase() === (chMix.name || '').toLowerCase()
-        );
-        if (chIdx === -1 || !sequencer.channels[chIdx]) return;
-
-        const ch = sequencer.channels[chIdx];
-
-        // Volume
-        if (chMix.volume !== undefined) {
-          ch.volume = Math.max(0, Math.min(1, chMix.volume));
-        }
-
-        // Pan
-        if (chMix.pan !== undefined) {
-          ch.pan = Math.max(-1, Math.min(1, chMix.pan));
-        }
-
-        // Mute
-        if (chMix.muted !== undefined) {
-          ch.muted = !!chMix.muted;
-          sequencer.setChannelMute(chIdx, ch.muted);
-        }
-      });
-    }
+    if (!mixData) return;
+    if (mixData.master_volume != null && audioEngine?.setMasterVolume) audioEngine.setMasterVolume(mixData.master_volume);
+    if (!Array.isArray(mixData.channels)) return;
+    mixData.channels.forEach(chData => {
+      const idx = AI_PRODUCER_CHANNELS.findIndex(n => n.toLowerCase() === (chData.name || '').toLowerCase());
+      if (idx === -1 || !sequencer.channels[idx]) return;
+      const ch = sequencer.channels[idx];
+      if (chData.volume != null) ch.volume = Math.max(0, Math.min(1, chData.volume));
+      if (chData.pan   != null) ch.pan    = Math.max(-1, Math.min(1, chData.pan));
+      if (chData.muted != null) { ch.muted = chData.muted; sequencer.setChannelMute?.(idx, ch.muted); }
+      if (audioEngine?.updateChannelGain) audioEngine.updateChannelGain(idx, ch.volume, ch.pan);
+    });
   }
-
-  /**
-   * Snapshot mixer state for undo.
-   */
   static snapshot(sequencer, audioEngine) {
     return {
-      masterVolume: audioEngine?.masterGain?.gain?.value ?? 0.85,
-      channels: sequencer.channels.map(ch => ({
-        name: ch.name,
-        volume: ch.volume ?? 0.8,
-        pan: ch.pan ?? 0,
-        muted: ch.muted,
-      })),
+      masterVolume: audioEngine?.masterVolume ?? 0.9,
+      channels: sequencer.channels.map(ch => ({ name: ch.name, volume: ch.volume ?? 0.8, pan: ch.pan ?? 0, muted: ch.muted ?? false })),
     };
   }
-
-  /**
-   * Restore mixer snapshot.
-   */
-  static restore(snapshot, sequencer, audioEngine) {
-    if (!snapshot) return;
-    if (audioEngine && snapshot.masterVolume !== undefined) {
-      audioEngine.setMasterVolume(snapshot.masterVolume);
-    }
-    snapshot.channels.forEach((snap, i) => {
+  static restore(snap, sequencer, audioEngine) {
+    if (!snap) return;
+    if (audioEngine?.setMasterVolume) audioEngine.setMasterVolume(snap.masterVolume);
+    snap.channels.forEach((s, i) => {
       const ch = sequencer.channels[i];
       if (!ch) return;
-      ch.volume = snap.volume;
-      ch.pan = snap.pan;
-      ch.muted = snap.muted;
-      sequencer.setChannelMute(i, snap.muted);
+      ch.volume = s.volume; ch.pan = s.pan; ch.muted = s.muted;
+      sequencer.setChannelMute?.(i, s.muted);
+      if (audioEngine?.updateChannelGain) audioEngine.updateChannelGain(i, s.volume, s.pan);
     });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. AI PRODUCER (Orchestrator)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── 7. AI PRODUCER ORCHESTRATOR ─────────────────────────────────────────────
 
 class AIProducer {
   constructor() {
@@ -734,104 +355,65 @@ class AIProducer {
     this.ollama      = new OllamaClient();
     this.localOpenAI = new OpenAICompatClient();
 
-    // Active provider: 'beyou' | 'ollama' | 'local-openai' | 'gemini'
-    // Default to 'beyou' (built-in, no config needed)
-    const storedProvider = localStorage.getItem('fl-studio-llm-provider');
-    if (storedProvider && ['beyou', 'ollama', 'local-openai', 'gemini'].includes(storedProvider)) {
-      this.provider = storedProvider;
-    } else {
-      this.provider = 'beyou';  // Built-in — works out of the box!
-    }
+    const stored = localStorage.getItem('beyou-llm-provider');
+    this.provider = (['beyou','gemini','ollama','local-openai'].includes(stored)) ? stored : 'beyou';
 
-    this.conversation = [];    // { role: 'user'|'model', text: string }
-    this.isProcessing = false;
-    this.undoStack = [];       // Array of { beat, mix } snapshots
-    this.maxUndo = 10;
-
-    // Selected tags
+    this.conversation   = [];
+    this.isProcessing   = false;
+    this.undoStack      = [];
+    this.maxUndo        = 10;
     this.selectedGenres = [];
-    this.selectedMoods = [];
+    this.selectedMoods  = [];
   }
 
-  // Provider configuration
-  setProvider(provider) {
-    if (['beyou', 'ollama', 'local-openai', 'gemini'].includes(provider)) {
-      this.provider = provider;
-      localStorage.setItem('fl-studio-llm-provider', provider);
+  setProvider(p) {
+    if (['beyou','gemini','ollama','local-openai'].includes(p)) {
+      this.provider = p;
+      localStorage.setItem('beyou-llm-provider', p);
     }
   }
-
   getProvider() { return this.provider; }
 
   getActiveClient() {
-    if (this.provider === 'ollama') return this.ollama;
+    if (this.provider === 'gemini')      return this.gemini;
+    if (this.provider === 'ollama')      return this.ollama;
     if (this.provider === 'local-openai') return this.localOpenAI;
-    if (this.provider === 'gemini') return this.gemini;
-    return this.beyou;  // Default: built-in
+    return this.beyou;
   }
 
   getActiveDisplayName() {
-    if (this.provider === 'ollama') return `Ollama (${this.ollama.model})`;
-    if (this.provider === 'local-openai') return `Local (${this.localOpenAI.model})`;
-    if (this.provider === 'gemini') return 'Gemini Flash';
-    return 'BeYou Music AI';
+    if (this.provider === 'gemini')      return 'Gemini Flash';
+    if (this.provider === 'ollama')      return `Ollama (${this.ollama.model})`;
+    if (this.provider === 'local-openai') return `Local LLM (${this.localOpenAI.model})`;
+    return 'BeYou AI';
   }
 
   hasActiveConnection() {
     if (this.provider === 'gemini') return this.gemini.hasKey();
-    if (this.provider === 'ollama') return !!this.ollama.baseUrl;
-    if (this.provider === 'local-openai') return !!this.localOpenAI.baseUrl;
-    return true;  // BeYou built-in is always available!
+    return true;
   }
 
-  async testActiveConnection() {
-    return this.getActiveClient().testConnection();
-  }
+  async testActiveConnection() { return this.getActiveClient().testConnection(); }
 
-  setApiKey(key) { this.gemini.setApiKey(key); }
-  hasApiKey()    { return this.hasActiveConnection(); }
-  getApiKey()    { return this.gemini.apiKey; }
+  setApiKey(k) { this.gemini.setApiKey(k); }
+  getApiKey()  { return this.gemini.apiKey; }
 
-  /**
-   * Build contextual system prompt including current DAW state.
-   */
   _buildSystemPrompt(sequencer) {
     let ctx = GEMINI_SYSTEM_PROMPT;
-
-    // Add current DAW state
-    ctx += `\n\nCURRENT DAW STATE:`;
-    ctx += `\nBPM: ${sequencer.bpm}`;
-
+    ctx += `\n\nCURRENT DAW STATE:\nBPM: ${sequencer.bpm}`;
     sequencer.channels.forEach((ch, i) => {
-      ctx += `\nChannel ${i} (${ch.name}): steps=[${ch.steps.join(',')}] velocity=[${ch.velocity.map(v => v.toFixed(2)).join(',')}] muted=${ch.muted}`;
+      ctx += `\nCh${i} (${ch.name}): steps=[${ch.steps.join(',')}]`;
     });
-
-    // Genre/mood context
-    if (this.selectedGenres.length > 0) {
-      ctx += `\n\nUser's selected genre(s): ${this.selectedGenres.join(', ')}`;
-    }
-    if (this.selectedMoods.length > 0) {
-      ctx += `\nUser's selected mood(s): ${this.selectedMoods.join(', ')}`;
-    }
-
+    if (this.selectedGenres.length) ctx += `\n\nUser's selected genre(s): ${this.selectedGenres.join(', ')}`;
+    if (this.selectedMoods.length)  ctx += `\nUser's selected mood(s): ${this.selectedMoods.join(', ')}`;
     return ctx;
   }
 
-  /**
-   * Save undo snapshot before making changes.
-   */
   _saveUndo(sequencer, audioEngine) {
-    const snap = {
-      beat: BeatGenerator.snapshot(sequencer),
-      mix: MixMaster.snapshot(sequencer, audioEngine),
-    };
-    this.undoStack.push(snap);
+    this.undoStack.push({ beat: BeatGenerator.snapshot(sequencer), mix: MixMaster.snapshot(sequencer, audioEngine) });
     if (this.undoStack.length > this.maxUndo) this.undoStack.shift();
   }
 
-  /**
-   * Undo the last AI change.
-   */
   undo(sequencer, audioEngine) {
     const snap = this.undoStack.pop();
     if (!snap) return false;
@@ -839,248 +421,131 @@ class AIProducer {
     MixMaster.restore(snap.mix, sequencer, audioEngine);
     return true;
   }
-
   canUndo() { return this.undoStack.length > 0; }
 
-  /**
-   * Main produce method — generates beat + mix from a user prompt.
-   * @param {string} userPrompt
-   * @param {Sequencer} sequencer
-   * @param {AudioEngine} audioEngine
-   * @param {object} opts
-   * @returns {Promise<object>} { message, suggestions, hasBeat, hasMix }
-   */
   async produce(userPrompt, sequencer, audioEngine, { onStatus = () => {} } = {}) {
-    const activeClient = this.getActiveClient();
-
-    if (this.isProcessing) {
-      activeClient.cancel();
-      await new Promise(r => setTimeout(r, 150));
-    }
-
+    const client = this.getActiveClient();
+    if (this.isProcessing) { client.cancel(); await new Promise(r => setTimeout(r, 150)); }
     this.isProcessing = true;
-
     try {
-      // Add user message to conversation
       this.conversation.push({ role: 'user', text: userPrompt });
-
-      // Cap conversation length to avoid token limits
-      if (this.conversation.length > 20) {
-        this.conversation = this.conversation.slice(-16);
-      }
+      if (this.conversation.length > 20) this.conversation = this.conversation.slice(-16);
 
       let result = null;
-
-      // Try active client first; fall back to built-in procedural engine on any failure
       if (this.hasActiveConnection()) {
         try {
-          const systemPrompt = this._buildSystemPrompt(sequencer);
-          result = await activeClient.chat(this.conversation, systemPrompt, { onStatus });
+          result = await client.chat(this.conversation, this._buildSystemPrompt(sequencer), { onStatus });
         } catch (err) {
-          console.warn('[BeYou AI] Chat failed, switching to procedural fallback:', err.message);
+          console.warn('[BeYou AI] Client failed, using procedural fallback:', err.message);
           onStatus('composing');
-          result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
+          result = this._proceduralFallback(userPrompt);
         }
       } else {
         onStatus('composing');
-        result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
+        result = this._proceduralFallback(userPrompt);
       }
 
-      // Safety guard — ensure result is always a valid object
-      if (!result || typeof result !== 'object') {
-        result = this._generateProceduralFallback(userPrompt, sequencer, audioEngine);
-      }
+      if (!result || typeof result !== 'object') result = this._proceduralFallback(userPrompt);
 
-      // Add AI response to conversation history
-      try {
-        this.conversation.push({ role: 'model', text: JSON.stringify(result) });
-      } catch (_) { /* JSON.stringify can fail on circular refs — ignore */ }
+      try { this.conversation.push({ role: 'model', text: JSON.stringify(result) }); } catch (_) {}
 
-      // Determine what changed
-      const hasBeat = !!(result.beat && result.beat.channels);
-      const hasMix  = !!(result.mix  && result.mix.channels);
+      const hasBeat = !!(result.beat?.channels);
+      const hasMix  = !!(result.mix?.channels);
 
-      // Save undo snapshot before applying
       if (hasBeat || hasMix) {
         try { this._saveUndo(sequencer, audioEngine); } catch (_) {}
       }
+      if (hasBeat) { try { BeatGenerator.apply(result.beat, sequencer); } catch (e) { console.warn('BeatGenerator.apply:', e); } }
+      if (hasMix)  { try { MixMaster.apply(result.mix, sequencer, audioEngine); } catch (e) { console.warn('MixMaster.apply:', e); } }
 
-      // Apply beat patterns to sequencer
-      if (hasBeat) {
-        try { BeatGenerator.apply(result.beat, sequencer); } catch (e) {
-          console.warn('[BeYou AI] BeatGenerator.apply failed:', e.message);
-        }
-      }
-
-      // Apply mix settings to mixer/audio engine
-      if (hasMix) {
-        try { MixMaster.apply(result.mix, sequencer, audioEngine); } catch (e) {
-          console.warn('[BeYou AI] MixMaster.apply failed:', e.message);
-        }
-      }
-
-      return {
-        message:     result.message     || '🎵 Beat generated!',
-        suggestions: result.suggestions || [],
-        hasBeat,
-        hasMix,
-        bpm: result.beat?.bpm,
-      };
-
+      return { message: result.message || '🎵 Done!', suggestions: result.suggestions || [], hasBeat, hasMix, bpm: result.beat?.bpm };
     } finally {
-      // ALWAYS reset the processing flag — no matter what happens
       this.isProcessing = false;
     }
   }
 
-
-  /**
-   * Deep procedural music knowledge engine:
-   * Translates genre, mood, tempo, and prompt nuances into authentic 16-step patterns,
-   * humanized velocities, and mix-mastering settings.
-   */
-  _generateProceduralFallback(userPrompt, sequencer, audioEngine) {
-    const p = (userPrompt || '').toLowerCase();
-
-    // 1. Genre classification
+  // Procedural fallback when no internet / no key
+  _proceduralFallback(prompt) {
+    const p = (prompt || '').toLowerCase();
     let genre = 'Hip-Hop';
-    if (p.includes('drill')) genre = 'Drill';
-    else if (p.includes('trap') || p.includes('808')) genre = 'Trap';
-    else if (p.includes('phonk') || p.includes('cowbell')) genre = 'Phonk';
-    else if (p.includes('synthwave') || p.includes('80s') || p.includes('outrun')) genre = 'Synthwave';
-    else if (p.includes('techno') || p.includes('acid') || p.includes('industrial')) genre = 'Techno';
-    else if (p.includes('dnb') || p.includes('drum and bass') || p.includes('jungle')) genre = 'Drum & Bass';
-    else if (p.includes('reggaeton') || p.includes('dembow') || p.includes('latin')) genre = 'Reggaeton';
-    else if (p.includes('afro') || p.includes('amapiano')) genre = 'Afrobeats';
-    else if (p.includes('house') || p.includes('club') || p.includes('edm')) genre = 'House';
-    else if (p.includes('ambient') || p.includes('calm') || p.includes('relax')) genre = 'Ambient';
-    else if (p.includes('lofi') || p.includes('lo-fi') || p.includes('chill') || p.includes('study')) genre = 'Lo-Fi';
-    else if (this.selectedGenres.length > 0) genre = this.selectedGenres[0];
+    if (p.includes('trap') || p.includes('808')) genre = 'Trap';
+    else if (p.includes('drill')) genre = 'Drill';
+    else if (p.includes('house') || p.includes('club')) genre = 'House';
+    else if (p.includes('lofi') || p.includes('lo-fi') || p.includes('chill')) genre = 'Lo-Fi';
+    else if (p.includes('techno')) genre = 'Techno';
+    else if (p.includes('dnb') || p.includes('drum')) genre = 'Drum & Bass';
+    else if (p.includes('afro')) genre = 'Afrobeats';
+    else if (p.includes('reggaeton') || p.includes('latin')) genre = 'Reggaeton';
+    else if (p.includes('synthwave') || p.includes('80s')) genre = 'Synthwave';
+    else if (p.includes('phonk')) genre = 'Phonk';
+    else if (p.includes('r&b') || p.includes('rnb') || p.includes('soul')) genre = 'R&B';
+    else if (p.includes('jazz')) genre = 'Jazz';
+    else if (p.includes('rock')) genre = 'Rock';
+    else if (p.includes('pop')) genre = 'Pop';
+    else if (p.includes('ambient') || p.includes('relax')) genre = 'Ambient';
 
-    // 2. Fetch seed pattern & BPM constraints
-    const seed = (typeof GENRE_SEEDS !== 'undefined' && GENRE_SEEDS[genre]) 
-      ? GENRE_SEEDS[genre] 
-      : (typeof GENRE_SEEDS !== 'undefined' ? GENRE_SEEDS['Hip-Hop'] : {});
-    const preset = (typeof GENRE_PRESETS !== 'undefined' && GENRE_PRESETS[genre]) 
-      ? GENRE_PRESETS[genre] 
-      : { bpmRange: [90, 120] };
+    const bpmMap = { 'Trap': 140, 'Drill': 142, 'Hip-Hop': 88, 'Lo-Fi': 80, 'House': 126,
+                     'Techno': 135, 'Drum & Bass': 174, 'Reggaeton': 95, 'Afrobeats': 102,
+                     'Synthwave': 100, 'Phonk': 130, 'R&B': 80, 'Jazz': 110, 'Rock': 120,
+                     'Pop': 115, 'Ambient': 75 };
+    const bpmM = p.match(/(\d{2,3})\s*(?:bpm|tempo)/);
+    const bpm  = bpmM ? parseInt(bpmM[1]) : (bpmMap[genre] || 100);
 
-    // 3. Determine BPM
-    const bpmMatch = p.match(/(\d{2,3})\s*(?:bpm|tempo)/);
-    const bpm = bpmMatch ? parseInt(bpmMatch[1], 10) : Math.round((preset.bpmRange[0] + preset.bpmRange[1]) / 2);
+    // Genre seed patterns
+    const seeds = {
+      'Trap':      { Kick: [1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0], Snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 'Hi-Hat C': [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1] },
+      'Hip-Hop':   { Kick: [1,0,0,1,0,0,0,0,1,0,0,1,0,0,0,0], Snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 'Hi-Hat C': [1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0] },
+      'House':     { Kick: [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0], Clap: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 'Hi-Hat C': [0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0] },
+      'Drum & Bass':{ Kick: [1,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0], Snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], 'Hi-Hat C': [1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1] },
+    };
+    const seed = seeds[genre] || seeds['Hip-Hop'];
 
-    // 4. Build channels with humanized velocities and dynamic variations
-    const channels = [];
-    AI_PRODUCER_CHANNELS.forEach((chName) => {
-      const baseSteps = seed[chName] ? [...seed[chName]] : new Array(16).fill(0);
-      const velocities = baseSteps.map((step, idx) => {
-        if (!step) return 0.0;
-        const isDownbeat = (idx % 4 === 0);
-        const baseVel = isDownbeat ? 0.95 : 0.76;
-        const jitter = (Math.random() * 0.14 - 0.07);
-        return Math.max(0.3, Math.min(1.0, +(baseVel + jitter).toFixed(2)));
-      });
-
-      channels.push({
-        name: chName,
-        steps: baseSteps,
-        velocity: velocities,
-      });
+    const channels = AI_PRODUCER_CHANNELS.map(name => {
+      const base = (seed[name] || new Array(16).fill(0));
+      const steps = base.map(s => s);
+      const velocity = steps.map((s, i) => s ? (i % 4 === 0 ? 0.95 : 0.7 + Math.random() * 0.2) : 0);
+      return { name, steps, velocity };
     });
 
-    // 5. Build genre-tailored mix settings
-    const mixChannels = [
-      { name: 'Kick', volume: genre === 'House' || genre === 'Techno' ? 0.95 : 0.90, pan: 0.0, muted: false },
-      { name: 'Clap', volume: 0.76, pan: -0.05, muted: false },
-      { name: 'Hi-Hat C', volume: 0.68, pan: 0.20, muted: false },
-      { name: 'Hi-Hat O', volume: 0.62, pan: 0.25, muted: false },
-      { name: 'Snare', volume: genre === 'Drill' ? 0.88 : 0.82, pan: 0.0, muted: false },
-      { name: 'Tom', volume: 0.70, pan: -0.15, muted: false },
-      { name: 'Bass', volume: genre === 'Trap' || genre === 'Drill' || genre === 'Phonk' ? 0.95 : 0.85, pan: 0.0, muted: false },
-      { name: 'Lead', volume: 0.74, pan: 0.10, muted: false },
-    ];
-
     return {
-      message: `🎵 BeYou AI Music Engine composed an authentic ${genre} production at ${bpm} BPM with genre-tailored rhythm dynamics and master mixing!`,
-      beat: {
-        bpm,
-        channels,
-      },
-      mix: {
-        master_volume: 0.90,
-        channels: mixChannels,
-      },
+      message: `Got you — ${genre} pattern at ${bpm} BPM. Real patterns are loaded and ready to play.`,
+      beat: { bpm, channels },
       suggestions: [
-        `Try adjusting swing on the hi-hats for an even tighter ${genre} groove`,
-        `Add pitch glides in the Piano Roll on the Bass line`,
-        `Switch to SONG mode to build verse and hook arrangements`
-      ]
+        'Hit Generate Beat again for a different variation',
+        'Select a mood above for a more specific feel',
+        'Open Piano Roll on the Lead channel to add melody',
+      ],
     };
   }
 
-  /**
-   * Quick action: Full production with genre/mood context.
-   */
   async fullProduction(sequencer, audioEngine, opts = {}) {
-    const genres = this.selectedGenres.length > 0 ? this.selectedGenres.join(' + ') : 'any genre you think sounds great';
-    const moods  = this.selectedMoods.length > 0  ? this.selectedMoods.join(', ')  : 'your choice';
-    const prompt = `Create a complete production: Generate a ${genres} beat with a ${moods} mood. Include all drum channels (kick, snare, clap, hi-hats, toms) and melodic channels (bass, lead). Set appropriate BPM for the genre. Also provide mix-master settings with proper volume levels, panning, and balance. Make it sound professional.`;
-    return this.produce(prompt, sequencer, audioEngine, opts);
+    const genres = this.selectedGenres.length ? this.selectedGenres.join(' + ') : 'any genre you think is hot right now';
+    const moods  = this.selectedMoods.length  ? this.selectedMoods.join(', ')   : 'your choice';
+    return this.produce(`Full production: ${genres} beat with ${moods} mood. Include all 8 channels and mix settings.`, sequencer, audioEngine, opts);
   }
-
-  /**
-   * Quick action: Generate beat only.
-   */
   async generateBeat(sequencer, audioEngine, opts = {}) {
-    const genres = this.selectedGenres.length > 0 ? this.selectedGenres.join(' + ') : 'any genre';
-    const moods  = this.selectedMoods.length > 0  ? this.selectedMoods.join(', ')  : 'your choice';
-    const prompt = `Generate a ${genres} beat with a ${moods} vibe. Create interesting drum patterns for kick, snare, clap, hi-hats, toms, and melodic patterns for bass and lead. Set the right BPM. Use velocity variation for groove. Don't include mix settings, just the beat.`;
-    return this.produce(prompt, sequencer, audioEngine, opts);
+    const genres = this.selectedGenres.length ? this.selectedGenres.join(' + ') : 'any genre';
+    const moods  = this.selectedMoods.length  ? this.selectedMoods.join(', ')   : 'your choice';
+    return this.produce(`Generate a ${genres} beat with ${moods} vibe. Hit me with a fresh pattern.`, sequencer, audioEngine, opts);
   }
-
-  /**
-   * Quick action: Mix & master only.
-   */
   async mixAndMaster(sequencer, audioEngine, opts = {}) {
-    const prompt = `Look at my current beat pattern and create professional mix-master settings. Set appropriate volume levels for each channel, apply panning for stereo width, and ensure the overall balance sounds polished. Don't change the beat patterns, only provide mix settings.`;
-    return this.produce(prompt, sequencer, audioEngine, opts);
+    return this.produce('Mix and master my current beat. Set proper levels, panning, and balance. Just the mix, keep my patterns.', sequencer, audioEngine, opts);
   }
-
-  /**
-   * Quick action: Add variation to current pattern.
-   */
   async addVariation(sequencer, audioEngine, opts = {}) {
-    const prompt = `Look at my current beat pattern and add creative variation. You can modify the existing pattern to add fills, change some hi-hat patterns, add ghost notes with lower velocity, or add/remove some steps to make it more interesting. Keep the overall feel the same but make it more dynamic.`;
-    return this.produce(prompt, sequencer, audioEngine, opts);
+    return this.produce('Add variation to my current pattern. Keep the feel but make it more interesting — ghost notes, fills, some syncopation.', sequencer, audioEngine, opts);
   }
-
-  /**
-   * Quick action: Surprise random beat.
-   */
   async surpriseMe(sequencer, audioEngine, opts = {}) {
-    const randomGenre = AI_PRODUCER_GENRES[Math.floor(Math.random() * AI_PRODUCER_GENRES.length)];
-    const randomMood = AI_PRODUCER_MOODS[Math.floor(Math.random() * AI_PRODUCER_MOODS.length)];
-    const prompt = `Surprise me! Create a unique and creative ${randomGenre} beat with a ${randomMood} mood. Be experimental with the rhythms and patterns. Include both beat and mix-master settings. Make it something unexpected and interesting!`;
-    return this.produce(prompt, sequencer, audioEngine, opts);
+    const g = AI_PRODUCER_GENRES[Math.floor(Math.random() * AI_PRODUCER_GENRES.length)];
+    const m = AI_PRODUCER_MOODS[Math.floor(Math.random() * AI_PRODUCER_MOODS.length)];
+    return this.produce(`Surprise me — ${g} beat with ${m} mood. Be creative and experimental.`, sequencer, audioEngine, opts);
   }
 
-  /**
-   * Clear conversation history.
-   */
-  clearConversation() {
-    this.conversation = [];
-    this.undoStack = [];
-  }
-
-  cancel() {
-    this.getActiveClient().cancel();
-    this.isProcessing = false;
-  }
+  clearConversation() { this.conversation = []; this.undoStack = []; }
+  cancel() { this.getActiveClient().cancel(); this.isProcessing = false; }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Expose
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Expose ──────────────────────────────────────────────────────────────────
+
 window.AIProducer          = AIProducer;
 window.BeYouClient         = BeYouClient;
 window.GeminiClient        = GeminiClient;
@@ -1091,3 +556,4 @@ window.MixMaster           = MixMaster;
 window.AI_PRODUCER_GENRES  = AI_PRODUCER_GENRES;
 window.AI_PRODUCER_MOODS   = AI_PRODUCER_MOODS;
 window.AI_PRODUCER_ACTIONS = AI_PRODUCER_ACTIONS;
+window.PROMPT_STARTERS     = PROMPT_STARTERS;

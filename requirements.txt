@@ -4,3 +4,7 @@ pydantic>=2.8.0
 email-validator>=2.2.0
 requests>=2.32.0
 python-multipart>=0.0.9
+
+# ── Training pipeline (only needed for scripts/train_from_groove.py) ──────────
+# pretty_midi>=0.2.10   # auto-installed by train_from_groove.py if missing
+# numpy>=1.24.0         # auto-installed by train_from_groove.py if missing

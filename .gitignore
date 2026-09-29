@@ -50,3 +50,7 @@ logs/
 .idea/
 .vscode/
 *.swp
+
+# Groove MIDI training cache (binary data, downloaded on first run)
+data/groove_cache/
+

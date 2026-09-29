@@ -112,6 +112,81 @@ def init_db():
 
     conn.commit()
 
+    # ── Add bio/genre_tags columns if missing (safe migration) ──────────────────
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''")
+    except Exception: pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN genre_tags TEXT DEFAULT ''")
+    except Exception: pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN beats_submitted INTEGER DEFAULT 0")
+    except Exception: pass
+
+    # ── Add play_count column to projects if missing ──────────────────────────
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN play_count INTEGER DEFAULT 0")
+    except Exception: pass
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN like_count INTEGER DEFAULT 0")
+    except Exception: pass
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN genre TEXT DEFAULT ''")
+    except Exception: pass
+    try:
+        cursor.execute("ALTER TABLE projects ADD COLUMN thumbnail_data TEXT DEFAULT ''")
+    except Exception: pass
+
+    # 6. Train Submissions — crowd-sourced patterns for Max
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS train_submissions (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            prompt TEXT NOT NULL,
+            genre TEXT NOT NULL,
+            bpm INTEGER NOT NULL,
+            pattern_json TEXT NOT NULL,
+            mix_json TEXT,
+            rating INTEGER DEFAULT 0,    -- 0=pending, 1=approved, -1=rejected
+            approved_by INTEGER,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_train_genre ON train_submissions(genre)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_train_rating ON train_submissions(rating)")
+
+    # 7. Beat Likes — project reactions
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS beat_likes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            project_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, project_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_likes_project ON beat_likes(project_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_likes_user ON beat_likes(user_id)")
+
+    # 8. Follows — user following
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            follower_id INTEGER NOT NULL,
+            following_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(follower_id, following_id),
+            FOREIGN KEY (follower_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (following_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    conn.commit()
+
+
     # Seed Super Admin: Rahul Sharma
     seed_super_admin(cursor)
     conn.commit()
