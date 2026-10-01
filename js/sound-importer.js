@@ -608,7 +608,6 @@ class SoundImporter {
 
 /* ── Bootstrap: create importer + wire button after DOM loads ────────── */
 document.addEventListener('DOMContentLoaded', () => {
-  // Wait until app is initialised (app.js runs after this file)
   const waitForApp = () => {
     if (!window.app) { setTimeout(waitForApp, 150); return; }
 
@@ -618,16 +617,31 @@ document.addEventListener('DOMContentLoaded', () => {
       () => window.app._buildChannelRack()
     );
 
-    // Wire toolbar button
-    const btn = document.getElementById('btn-import-sound');
-    if (btn) btn.addEventListener('click', () => window.soundImporter.open());
+    const openImporter = () => window.soundImporter.open();
 
-    // Add "Import Sound" to the add-channel button
+    // Toolbar compact button
+    document.getElementById('btn-import-sound')?.addEventListener('click', openImporter);
+
+    // Rack footer "Import Sound" button (primary entry point)
+    document.getElementById('import-sound-rack-btn')?.addEventListener('click', openImporter);
+
+    // "Add Channel" in rack footer — add a blank synth channel
     const addBtn = document.getElementById('add-channel-btn');
     if (addBtn) {
-      addBtn.addEventListener('click', (e) => {
-        e.stopImmediatePropagation();
-        window.soundImporter.open();
+      addBtn.addEventListener('click', () => {
+        const COLORS = ['#ff6a00','#a855f7','#00d4aa','#ec4899','#22d3ee','#84cc16','#f59e0b','#ef4444','#6366f1','#f97316'];
+        const idx  = window.app.sequencer.channels.length;
+        const color = COLORS[idx % COLORS.length];
+        window.app.sequencer.channels.push({
+          name: `Channel ${idx + 1}`,
+          color,
+          steps:    new Array(window.app.sequencer.steps).fill(false),
+          velocity: new Array(window.app.sequencer.steps).fill(0.8),
+          volume: 1, pan: 0, muted: false, solo: false,
+          type: 'synth', notes: [], filterFreq: 2000, filterRes: 1,
+        });
+        window.app._buildChannelRack();
+        if (window.showToast) showToast(`✚ Channel ${idx + 1} added`);
       });
     }
   };
