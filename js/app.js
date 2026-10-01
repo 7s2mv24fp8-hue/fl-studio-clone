@@ -198,13 +198,38 @@ class FLStudioApp {
     }
 
     row.appendChild(stepsContainer);
-    row.addEventListener('contextmenu', e => {
+     row.addEventListener('contextmenu', e => {
       if (e.target === row || e.target === label) {
         e.preventDefault();
         showContextMenu([
           { label: '🎲 Randomize', action: () => { this.sequencer.randomizeChannel(ci); this._refreshChannelRack(); } },
           { label: '🗑 Clear',     action: () => { this.sequencer.clearChannel(ci); this._refreshChannelRack(); } },
           { label: '🎹 Piano Roll', action: () => { this._selectPianoRollChannel(ci); this._switchTab('piano-roll'); } },
+          'separator',
+          { label: '🎛️ Channel FX (Reverb · Delay · EQ…)', action: () => {
+            if (window.flFeatures) { window.flFeatures.channelFX.getChainInput(ci); window.flFeatures.fxUI.open(ci, row); }
+            else showToast('Loading FL features…');
+          }},
+          { label: '✂️ Slice Sample (8 parts)', action: () => {
+            if (window.flFeatures) window.flFeatures.slicer.slice(this.sequencer, ci, 8, this.audioEngine);
+            else showToast('Loading FL features…');
+          }},
+          { label: '📐 Set 16 Steps', action: () => {
+            const ch2 = this.sequencer.channels[ci];
+            if (!ch2) return;
+            const d = 16 - ch2.steps.length;
+            ch2.steps    = d > 0 ? [...ch2.steps, ...Array(d).fill(false)]    : ch2.steps.slice(0,16);
+            ch2.velocity = d > 0 ? [...ch2.velocity, ...Array(d).fill(0.8)]   : ch2.velocity.slice(0,16);
+            this._buildChannelRack(); showToast('16 steps');
+          }},
+          { label: '📐 Set 32 Steps', action: () => {
+            const ch2 = this.sequencer.channels[ci];
+            if (!ch2) return;
+            const d = 32 - ch2.steps.length;
+            ch2.steps    = d > 0 ? [...ch2.steps, ...Array(d).fill(false)]    : ch2.steps.slice(0,32);
+            ch2.velocity = d > 0 ? [...ch2.velocity, ...Array(d).fill(0.8)]   : ch2.velocity.slice(0,32);
+            this._buildChannelRack(); showToast('32 steps');
+          }},
           'separator',
           { label: '🎵 Import Sound to this slot', action: () => {
             if (window.soundImporter) window.soundImporter.open();
@@ -213,6 +238,7 @@ class FLStudioApp {
         ], e.clientX, e.clientY);
       }
     });
+
 
     return row;
   }
