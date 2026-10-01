@@ -90,7 +90,7 @@ class FLStudioApp {
     if (ch.type === 'audio') {
       const audioBadge = document.createElement('span');
       audioBadge.className = 'channel-audio-badge';
-      audioBadge.textContent = 'VOCAL';
+      audioBadge.textContent = ch.sampleFileName ? 'SAMPLE' : 'VOCAL';
       label.appendChild(audioBadge);
 
       const previewBtn = document.createElement('button');
@@ -205,6 +205,11 @@ class FLStudioApp {
           { label: '🎲 Randomize', action: () => { this.sequencer.randomizeChannel(ci); this._refreshChannelRack(); } },
           { label: '🗑 Clear',     action: () => { this.sequencer.clearChannel(ci); this._refreshChannelRack(); } },
           { label: '🎹 Piano Roll', action: () => { this._selectPianoRollChannel(ci); this._switchTab('piano-roll'); } },
+          'separator',
+          { label: '🎵 Import Sound to this slot', action: () => {
+            if (window.soundImporter) window.soundImporter.open();
+            else showToast('Sound importer not ready');
+          }},
         ], e.clientX, e.clientY);
       }
     });
