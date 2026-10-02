@@ -150,6 +150,9 @@
       <button id="btn-import-sound" class="tb-cloud-btn" title="Import a sound file into the channel rack" style="border-color:rgba(34,211,238,0.35);color:#67e8f9;">
         <span>🎵</span> Import
       </button>
+      <button id="btn-preset-library" class="tb-cloud-btn" title="Browse pre-recorded sample library">
+        <span>🎶</span> Library
+      </button>
       <button id="plat-explore-tab" title="Explore Community Beats">
         🌐 Explore
       </button>
@@ -242,7 +245,7 @@
       <!-- Channel rows -->
       <div id="channels-list"></div>
 
-      <!-- Add channel / Import Sound -->
+      <!-- Add channel / Import Sound / Sample Library -->
       <div class="rack-footer-actions">
         <div id="add-channel-btn" class="rack-footer-btn" title="Add a new synth channel">
           <svg viewBox="0 0 16 16" width="12" fill="currentColor"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -250,6 +253,9 @@
         </div>
         <div id="import-sound-rack-btn" class="rack-footer-btn rack-import-btn" title="Import an audio file as a sample channel">
           <span>🎵</span> Import Sound
+        </div>
+        <div id="preset-library-rack-btn" class="rack-footer-btn" style="border-color:rgba(34,211,238,0.3);color:#67e8f9;background:rgba(34,211,238,0.04);" title="Browse the built-in sample library">
+          <span>🎶</span> Sample Library
         </div>
       </div>
     </div>
@@ -1293,6 +1299,7 @@
 </script>
 
 <script src="js/sound-importer.js"></script>
+<script src="js/preset-samples.js"></script>
 <script src="js/fl-features.js"></script>
 <script src="js/platform.js"></script>
 
