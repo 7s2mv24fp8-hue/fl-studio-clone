@@ -1094,9 +1094,7 @@ canvas { display: block; }
   gap: 5px;
   user-select: none;
 }
-#add-channel-btn {
-  /* keep existing styles from .rack-footer-btn */
-}
+/* #add-channel-btn inherits all styles from .rack-footer-btn */
 #add-channel-btn:hover {
   background: rgba(255,106,0,0.08);
   border-color: var(--accent);
